@@ -1,0 +1,1 @@
+"""TechPilot application package."""
