@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
+
+from app.services.health import check_dependencies
 
 app = FastAPI(
     title="TechPilot API",
@@ -13,4 +15,26 @@ async def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "techpilot",
+    }
+
+
+@app.get("/health/dependencies", tags=["system"])
+async def dependencies_health(response: Response) -> dict[str, object]:
+    """Return the health status of external dependencies."""
+    dependencies = await check_dependencies()
+
+    all_healthy = all(
+        dependency["status"] == "ok"
+        for dependency in dependencies.values()
+    )
+
+    if all_healthy:
+        overall_status = "ok"
+    else:
+        overall_status = "degraded"
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return {
+        "status": overall_status,
+        "dependencies": dependencies,
     }
