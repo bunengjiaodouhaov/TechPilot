@@ -1,181 +1,165 @@
 # TechPilot RUNBOOK
 
-## 1. 每天开始开发
+## 每天开始开发
 
 ```bash
-cd ~/TechPilot
 conda deactivate 2>/dev/null || true
 source .venv/bin/activate
 which python
 python --version
 git pull
-```
-
-预期：
-- `which python` 指向 `TechPilot/.venv/bin/python`
-- Python 版本为 3.11.x
-
-## 2. 启动基础设施
-
-确保 Docker Desktop 已启动，然后执行：
-
-```bash
 docker compose up -d
-docker compose ps
-```
-
-验证依赖：
-
-```bash
-docker compose exec postgres pg_isready -U techpilot -d techpilot
-docker compose exec redis redis-cli ping
-curl http://localhost:6333/healthz
-```
-
-预期：
-- PostgreSQL：`accepting connections`
-- Redis：`PONG`
-- Qdrant：`healthz check passed`
-
-## 3. 数据库迁移
-
-查看当前版本：
-
-```bash
-alembic current
-```
-
-应用最新迁移：
-
-```bash
 alembic upgrade head
-```
-
-查看数据库表：
-
-```bash
-docker compose exec postgres   psql -U techpilot -d techpilot   -c "\dt"
-```
-
-新增或修改 ORM 模型后：
-
-```bash
-alembic revision --autogenerate -m "<migration message>"
-```
-
-必须先审查生成的 migration，再执行：
-
-```bash
-alembic upgrade head
-```
-
-## 4. 启动 API
-
-```bash
 uvicorn app.main:app --reload
 ```
 
 验证：
 
+- http://127.0.0.1:8000/health
+- http://127.0.0.1:8000/health/dependencies
+- http://127.0.0.1:8000/docs
+
+## 每天结束开发
+
 ```bash
-curl http://127.0.0.1:8000/health
-curl -i http://127.0.0.1:8000/health/dependencies
+pytest -q
+alembic current
+git diff --check
+git status
 ```
 
-API 文档：
+确认无误后：
+
+```bash
+git add -A
+git commit -m "<message>"
+git push
+```
+
+## Day 3：文档摄取
+
+### 创建默认 Workspace
+
+```bash
+docker compose exec postgres psql           -U techpilot           -d techpilot           -c "INSERT INTO workspace (name) VALUES ('TechPilot Default') RETURNING id, name;"
+```
+
+### 网页上传
+
+打开：
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## 5. 运行测试
-
-```bash
-pytest -q
-```
-
-Day 2 基线：
+执行：
 
 ```text
-2 passed
+POST /documents/upload
 ```
 
-当前存在一个非阻塞的 Starlette/httpx 弃用警告。
+填写：
 
-## 6. 每天结束开发
+```text
+workspace_id=<实际 Workspace ID>
+file=<Markdown 或 PDF>
+```
+
+### 常见 404
+
+```json
+{"detail": "Not Found"}
+```
+
+表示路由没有加载，通常需要重新启动 Uvicorn。
+
+```json
+{"detail": "Workspace 1 does not exist."}
+```
+
+表示路由已经执行，但 Workspace 不存在。
+
+### 自动化测试
 
 ```bash
 pytest -q
-git status
-git diff
-git add -A
-git commit -m "<type>: <message>"
-git push
 ```
 
-提交前必须：
-- 对照总控手册检查当日验收项
-- 更新 `PROJECT_STATUS.md`
-- 更新 `DEV_LOG.md`
-- 更新必要的运行命令
-- 生成仅保留本地的当日 Review
-
-## 7. 停止基础设施
-
-停止容器但保留数据卷：
+### Alembic 检查
 
 ```bash
-docker compose down
+alembic current
 ```
 
-停止并删除数据卷（会清空本地数据库与向量数据，谨慎执行）：
+### 真实 E2E
 
 ```bash
-docker compose down -v
+python scripts/verify_upload_e2e.py
 ```
 
-## 8. 常见问题
+成功标志：
 
-### 终端显示 `(base)`，pytest 找不到 FastAPI
-
-原因：正在使用 Anaconda 环境，而不是项目虚拟环境。
-
-处理：
-
-```bash
-conda deactivate
-source .venv/bin/activate
-which python
+```text
+E2E RESULT: PASS
 ```
 
-### `python` 或 `pip` 找不到
-
-检查 `.venv` 是否有效：
+### 查看文档和 Chunk 数量
 
 ```bash
-ls -l .venv/bin/python*
+docker compose exec -e PAGER=cat postgres psql           -U techpilot           -d techpilot           -P pager=off           -c "
+SELECT
+    d.id,
+    d.name,
+    d.status,
+    COUNT(c.id) AS chunk_count
+FROM document d
+LEFT JOIN chunk c ON c.document_id = d.id
+GROUP BY d.id, d.name, d.status
+ORDER BY d.id;
+"
 ```
 
-必要时使用 Python 3.11 重建：
+### 切块质量检查
 
 ```bash
-rm -rf .venv
-python3.11 -m venv .venv
-source .venv/bin/activate
+docker compose exec -e PAGER=cat postgres psql           -U techpilot           -d techpilot           -P pager=off           -c "
+SELECT
+    d.name,
+    COUNT(c.id) AS total_chunks,
+    COUNT(*) FILTER (
+        WHERE c.metadata ->> 'heading_only' = 'true'
+    ) AS heading_only_chunks,
+    COUNT(*) FILTER (
+        WHERE c.char_count < 50
+    ) AS chunks_under_50_chars,
+    ROUND(AVG(c.char_count), 1) AS avg_chars,
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY c.char_count
+    )::INTEGER AS median_chars,
+    MAX(c.char_count) AS max_chars
+FROM document d
+JOIN chunk c ON c.document_id = d.id
+GROUP BY d.id, d.name
+ORDER BY d.id;
+"
+```
+
+## 常见问题
+
+### `No module named fastapi`
+
+```bash
 python -m pip install -r requirements.txt
 ```
 
-### Docker 命令找不到
+### `requirements.txt` 找不到
 
-安装并启动 Docker Desktop，再重新打开 VS Code Terminal。
+确认当前目录是项目根目录。
 
-### 依赖健康检查失败
+### `ModuleNotFoundError: No module named 'app'`
 
-依次执行：
+从项目根目录运行模块，或确保脚本已把项目根目录加入 `sys.path`。
 
-```bash
-docker compose ps
-docker compose logs postgres
-docker compose logs redis
-docker compose logs qdrant
-```
+### 终端出现 `heredoc>`
+
+说明 Shell 正在等待多行输入结束标记。按 `Ctrl+C` 取消，不要继续粘贴 Markdown 文档内容。

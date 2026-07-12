@@ -9,3 +9,7 @@ alembic
 redis
 qdrant-client
 greenlet
+
+pypdf
+python-multipart
+pytest-asyncio==1.4.0

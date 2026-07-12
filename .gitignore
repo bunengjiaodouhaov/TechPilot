@@ -12,3 +12,8 @@ __pycache__/
 
 # Environment
 .env
+.DS_Store
+
+# Local-only files
+*.local.md
+.local/
