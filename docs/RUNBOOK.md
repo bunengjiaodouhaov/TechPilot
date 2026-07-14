@@ -38,12 +38,6 @@ git push
 
 ## Day 3：文档摄取
 
-### 创建默认 Workspace
-
-```bash
-docker compose exec postgres psql           -U techpilot           -d techpilot           -c "INSERT INTO workspace (name) VALUES ('TechPilot Default') RETURNING id, name;"
-```
-
 ### 网页上传
 
 打开：
@@ -65,32 +59,6 @@ workspace_id=<实际 Workspace ID>
 file=<Markdown 或 PDF>
 ```
 
-### 常见 404
-
-```json
-{"detail": "Not Found"}
-```
-
-表示路由没有加载，通常需要重新启动 Uvicorn。
-
-```json
-{"detail": "Workspace 1 does not exist."}
-```
-
-表示路由已经执行，但 Workspace 不存在。
-
-### 自动化测试
-
-```bash
-pytest -q
-```
-
-### Alembic 检查
-
-```bash
-alembic current
-```
-
 ### 真实 E2E
 
 ```bash
@@ -103,48 +71,96 @@ python scripts/verify_upload_e2e.py
 E2E RESULT: PASS
 ```
 
-### 查看文档和 Chunk 数量
+## Day 4–5：基础检索
+
+### 启动依赖
 
 ```bash
-docker compose exec -e PAGER=cat postgres psql           -U techpilot           -d techpilot           -P pager=off           -c "
-SELECT
-    d.id,
-    d.name,
-    d.status,
-    COUNT(c.id) AS chunk_count
-FROM document d
-LEFT JOIN chunk c ON c.document_id = d.id
-GROUP BY d.id, d.name, d.status
-ORDER BY d.id;
-"
+docker compose up -d
 ```
 
-### 切块质量检查
+### 编译检查
 
 ```bash
-docker compose exec -e PAGER=cat postgres psql           -U techpilot           -d techpilot           -P pager=off           -c "
-SELECT
-    d.name,
-    COUNT(c.id) AS total_chunks,
-    COUNT(*) FILTER (
-        WHERE c.metadata ->> 'heading_only' = 'true'
-    ) AS heading_only_chunks,
-    COUNT(*) FILTER (
-        WHERE c.char_count < 50
-    ) AS chunks_under_50_chars,
-    ROUND(AVG(c.char_count), 1) AS avg_chars,
-    PERCENTILE_CONT(0.5) WITHIN GROUP (
-        ORDER BY c.char_count
-    )::INTEGER AS median_chars,
-    MAX(c.char_count) AS max_chars
-FROM document d
-JOIN chunk c ON c.document_id = d.id
-GROUP BY d.id, d.name
-ORDER BY d.id;
-"
+python -m py_compile   app/retrieval/embedding.py   app/retrieval/dto.py   app/retrieval/repository.py   app/retrieval/qdrant_repository.py   app/retrieval/indexing_service.py   app/retrieval/dense_retrieval_service.py   scripts/retrieval_eval.py
 ```
 
-## 常见问题
+### 自动化测试
+
+```bash
+pytest -q
+```
+
+### 运行 Dense Retrieval Baseline
+
+从项目根目录执行：
+
+```bash
+PYTHONPATH=. python scripts/retrieval_eval.py
+```
+
+预期输出包含：
+
+```text
+DENSE RETRIEVAL BASELINE
+evaluation_cases: 30
+top_k: 5
+recall_at_5: 0.866667
+mrr_at_5: 0.627778
+failure_report: eval/retrieval_failures.jsonl
+```
+
+### 本地评测文件
+
+以下目录只保留本地，不提交 GitHub：
+
+```text
+eval/
+```
+
+其中可包含：
+
+```text
+retrieval_golden.jsonl
+retrieval_failures.jsonl
+source_chunks.local.jsonl
+```
+
+### 常见错误
+
+#### `ModuleNotFoundError: No module named 'app'`
+
+```bash
+PYTHONPATH=. python scripts/retrieval_eval.py
+```
+
+#### `KeyError: expected_document_id`
+
+说明 Golden Dataset 存在旧 Schema。每行必须包含：
+
+```text
+query
+workspace_id
+expected_document_id
+expected_document_name
+expected_chunk_id
+expected_chunk_index
+expected_section
+```
+
+#### `IndentationError`
+
+不要在函数外拼接带缩进的片段。使用完整函数或完整文件替换，并先运行：
+
+```bash
+python -m py_compile scripts/retrieval_eval.py
+```
+
+#### Hugging Face 未认证警告
+
+不影响本地模型加载和评测结果。需要提高下载限额时再配置 `HF_TOKEN`。
+
+## 通用常见问题
 
 ### `No module named fastapi`
 
@@ -156,10 +172,6 @@ python -m pip install -r requirements.txt
 
 确认当前目录是项目根目录。
 
-### `ModuleNotFoundError: No module named 'app'`
-
-从项目根目录运行模块，或确保脚本已把项目根目录加入 `sys.path`。
-
 ### 终端出现 `heredoc>`
 
-说明 Shell 正在等待多行输入结束标记。按 `Ctrl+C` 取消，不要继续粘贴 Markdown 文档内容。
+Shell 正在等待多行输入结束标记。按 `Ctrl+C` 取消。

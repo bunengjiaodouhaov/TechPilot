@@ -2,18 +2,19 @@
 
 ## 当前版本
 
-v0.3-dev
+v0.4-dev
 
 ## 当前阶段
 
-P0：第一条数据链路完成
+P1：文档 RAG — 基础检索完成
 
 ## 阶段状态
 
 - Day 1：已完成
 - Day 2：已完成
 - Day 3：已完成
-- Day 4–5：待开始
+- Day 4–5：已完成
+- Day 6–7：待开始
 
 ## 已完成
 
@@ -39,39 +40,42 @@ P0：第一条数据链路完成
 ### Day 3：第一条数据链路
 
 - 实现 `POST /documents/upload`
-- 实现 Markdown Parser
-- 实现 PDF Parser
-- 保留 Markdown 标题路径和行号
-- 保留 PDF 页码范围
+- 实现 Markdown Parser 与 PDF Parser
 - 实现结构优先 Chunker
 - 生成稳定 `chunk_id`
 - 保存 Chunk JSONB Metadata
-- 扩展 Document 摄取元数据
-- 建立四态状态机：
-  - `PENDING`
-  - `COMPLETED`
-  - `PARTIAL`
-  - `FAILED`
-- 解析失败时保留 FAILED Document
-- Chunk 与最终状态在同一事务中提交
-- 完成 API、Service、Parser、Chunker 测试
-- 完成真实 Markdown/PDF E2E
+- 建立 Document 四态状态机
+- 完成上传、解析、入库 E2E
 - 通过 Swagger 上传 5 份真实技术文档
-- 根据真实数据修正 heading-only 过度切块问题
+- 最终生成 179 个有效 Chunk
 
-## Day 3 验收证据
+### Day 4–5：基础检索
 
-- `pytest -q`：17 passed
-- `alembic current`：`eb1c65724726 (head)`
-- Markdown E2E：PASS
-- PDF E2E：PASS
-- Swagger 网页上传：PASS
-- 5 份真实文档全部为 `COMPLETED`
-- 0 份文档没有 Chunk
-- 最终生成 179 个 Chunk
-- heading-only Chunk：0
-- 小于 50 字符的 Chunk：0
-- 最大 Chunk 长度不超过 1200 字符
+- 接入 `intfloat/multilingual-e5-base`
+- 固定向量维度为 768，使用归一化 Embedding
+- 实现独立 `EmbeddingProvider`
+- 实现 Qdrant `VectorRepository`
+- 实现 Qdrant Collection 创建、Upsert 和 Workspace 过滤检索
+- 实现 `IndexingService`
+- 将文档摄取链路接入自动向量索引
+- 实现 `DenseRetrievalService`
+- 不使用 LangChain 一键封装核心检索链路
+- 建立 30 条人工标注 Golden Dataset
+- 实现可复现的 Dense Retrieval 评测脚本
+- 计算并保存 Recall@5 与 MRR Baseline
+- 失败案例自动写入本地 JSONL
+
+## Day 4–5 验收证据
+
+- `python -m py_compile scripts/retrieval_eval.py`：PASS
+- `pytest -q`：47 passed
+- Qdrant Repository Smoke：PASS
+- 真实文档向量索引：179 Points
+- Golden Dataset：30 条
+- Recall@5：0.866667
+- MRR@5：0.627778
+- 失败案例：4 条
+- `eval/`：仅本地，不提交 GitHub
 
 ## 当前架构
 
@@ -86,13 +90,25 @@ ParserRouter
   ↓
 MarkdownParser / PDFParser
   ↓
-ParsedDocument
-  ↓
 StructureAwareChunker
   ↓
 Document + Chunk ORM
   ↓
 PostgreSQL
+  ↓
+IndexingService
+  ├── EmbeddingProvider
+  └── VectorRepository
+        ↓
+      Qdrant
+
+User Query
+  ↓
+DenseRetrievalService
+  ├── EmbeddingProvider
+  └── VectorRepository
+        ↓
+      Top-K VectorSearchHit
 ```
 
 ## 已知非阻塞问题
@@ -103,15 +119,14 @@ PostgreSQL
 - 扫描型 PDF 尚未支持 OCR。
 - 重复上传目前允许生成新的 Document 记录。
 - 当前使用字符数限制，不是真实 tokenizer token 数。
+- Dense Retrieval 的 4 条失败案例保留在本地，后续阶段再分析，不阻塞当前验收。
 
 ## 下一步
 
-Day 4–5：基础检索
+Day 6–7：可信问答
 
-- 接入一个 Embedding 模型
-- 接入 Qdrant
-- 实现 Dense Retrieval
-- 不使用 LangChain 一键封装核心检索链路
-- 建立至少 30 条最小检索评测集
-- 计算 Recall@5 和 MRR
-- 保存可复现的 Retrieval Baseline
+- 实现 Context Builder
+- 接入 LLM 回答
+- 每条回答返回文档名、页码和原文片段
+- 加入 10 条无答案问题
+- 记录错误回答率

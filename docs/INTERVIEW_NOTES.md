@@ -10,28 +10,15 @@
 
 ## Day 2
 
-### Docker 和 Docker Compose 分别解决什么问题？
-
-Docker 用镜像创建隔离、可复制的容器运行环境。Docker Compose 用一个配置文件统一描述并启动多个相关服务。
-
 ### PostgreSQL、Redis、Qdrant 分别承担什么职责？
 
 - PostgreSQL：结构化业务数据和元数据
 - Redis：高速缓存及后续异步任务支持
 - Qdrant：Embedding 向量、Payload 和语义检索索引
 
-### ORM 是什么？
+### ORM 和 Alembic 有什么区别？
 
-ORM 将 Python 对象与关系型数据库表进行映射。类对应表，对象通常对应表中的一行。
-
-### Alembic 是什么？
-
-Alembic 管理数据库 Schema 的版本变化。ORM 描述目标结构，Alembic 生成并执行从旧结构迁移到新结构的步骤。
-
-### `/health` 与 `/health/dependencies` 有什么区别？
-
-- `/health`：Liveness，检查 FastAPI 进程是否存活
-- `/health/dependencies`：Readiness，检查 PostgreSQL、Redis、Qdrant 是否可用
+ORM 描述应用希望使用的数据结构；Alembic 管理真实数据库 Schema 从旧版本迁移到新版本的过程。
 
 ---
 
@@ -39,32 +26,52 @@ Alembic 管理数据库 Schema 的版本变化。ORM 描述目标结构，Alembi
 
 ### 为什么 Parser 和 Chunker 要分开？
 
-Parser 的目标是尽量还原源文件结构；Chunker 的目标是生成适合检索的知识单元。两者变化原因不同，分开后可以独立测试和替换。
-
-### 为什么需要 `_ChunkCandidate`？
-
-Markdown 和 PDF 有不同的拆分规则，但 `chunk_index`、稳定 ID、字符统计和最终输出结构应该统一。Candidate 表示内容边界已经确定，但尚未分配最终身份。
+Parser 尽量还原源文件结构；Chunker 生成适合检索的知识单元。二者变化原因不同，应独立测试和替换。
 
 ### 为什么 Document 要先提交 PENDING？
 
-解析和入库可能失败。如果只使用一个事务，失败时 Document 也会消失，无法审计失败文件。先提交 PENDING，可以在失败后更新为 FAILED 并保存错误信息。
-
-### 为什么 Chunk Metadata 使用 JSONB？
-
-页码、标题路径、元素类型和拆分序号并非每种文件都有。JSONB 可以保存可扩展结构，并支持 PostgreSQL 字段级查询。
+解析和入库可能失败。先提交 PENDING，可以在失败后保留 FAILED Document 和错误信息。
 
 ### 为什么标题不单独生成 Chunk？
 
-真实文档验证显示，heading-only Chunk 会造成大量极短检索单元。标题应作为结构和上下文注入正文，而不是独立检索结果。
+真实文档验证显示 heading-only Chunk 会造成大量极短检索单元。标题应作为上下文注入正文。
 
-### Route 和 Router 的区别是什么？
+---
 
-Route 是一个具体的 HTTP 方法与路径，例如 `POST /documents/upload`。Router 是用于组织一组相关 Route 的容器。
+## Day 4–5：基础检索
 
-### 为什么 Service 不直接返回 HTTPException？
+### 为什么要抽象 EmbeddingProvider？
 
-Service 属于业务层，不应依赖 HTTP 协议。它抛出业务异常，由 API 层转换成 404、415 或 422。
+上层服务只需要“文档向量化”和“查询向量化”能力，不应绑定 Sentence Transformers 的具体 API。这样模型实现可以替换，业务代码和测试保持稳定。
 
-### 为什么失败时要 rollback？
+### 为什么 E5 的文档和查询要使用不同前缀？
 
-第二阶段的 Chunk 与最终状态必须原子提交。任何一步失败，都应撤销未提交 Chunk，避免出现部分入库。
+E5 按检索任务训练，文档使用 `passage:`，查询使用 `query:`。Provider 统一处理前缀，避免调用方遗漏。
+
+### 为什么 Repository 不直接返回 Qdrant SDK 对象？
+
+业务层不应依赖具体向量库。Repository 把 Qdrant 对象转换成内部 DTO，使存储实现可替换，并缩小 SDK 变化的影响范围。
+
+### PostgreSQL 和 Qdrant 谁是事实来源？
+
+PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重建的向量索引。向量写入失败时，不应丢失已经成功摄取的原始数据。
+
+### 为什么索引要在 PostgreSQL Commit 后执行？
+
+避免 Qdrant 已经存在向量，但 PostgreSQL 事务随后回滚，产生无法追溯的孤立索引。
+
+### 为什么 Qdrant 搜索必须强制带 workspace_id？
+
+所有 Workspace 共用一个环境级 Collection。强制 Filter 才能保证租户数据隔离，不能依赖调用方自觉。
+
+### Recall@5 是什么？
+
+30 条评测问题中，只要目标 Chunk 出现在前 5 个结果内就算召回成功。当前 26 条成功，因此 Recall@5 为 26/30，即 0.866667。
+
+### MRR@5 是什么？
+
+对每条问题取目标 Chunk 排名的倒数，再对全部问题求平均。排名越靠前，MRR 越高；未进入前 5 的问题贡献 0。
+
+### 为什么 Golden Dataset 必须人工标注？
+
+检索质量不能由模型自己给自己定义答案。每条 Query 必须由人确认最相关的目标 Chunk，否则指标可能衡量的是错误标签，而不是 Retriever。
