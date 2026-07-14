@@ -16,3 +16,5 @@ __pycache__/
 # Local
 .local/
 *.local.md
+# Local retrieval evaluation data
+eval/

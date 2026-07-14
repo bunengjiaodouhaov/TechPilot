@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
     qdrant_url: str
+    qdrant_collection_name: str = "techpilot_chunks"
+
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    embedding_dimension: int = 768
+    embedding_batch_size: int = 32
 
     model_config = SettingsConfigDict(
         env_file=".env",

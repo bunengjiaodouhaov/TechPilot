@@ -13,3 +13,4 @@ greenlet
 pypdf
 python-multipart
 pytest-asyncio==1.4.0
+sentence-transformers

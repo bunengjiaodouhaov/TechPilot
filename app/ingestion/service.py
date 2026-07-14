@@ -12,6 +12,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.document_status import DocumentStatus
 from app.models.workspace import Workspace
+from app.retrieval.indexing_service import IndexingService
 
 
 class WorkspaceNotFoundError(ValueError):
@@ -39,10 +40,12 @@ class IngestionService:
         session: AsyncSession,
         router: ParserRouter | None = None,
         chunker: StructureAwareChunker | None = None,
+        indexing_service: IndexingService | None = None,
     ) -> None:
         self._session = session
         self._router = router or ParserRouter()
         self._chunker = chunker or StructureAwareChunker()
+        self._indexing_service = indexing_service
 
     async def ingest(
         self,
@@ -114,20 +117,22 @@ class IngestionService:
                     "Parsing produced no usable chunks."
                 )
 
+            chunks: list[Chunk] = []
+
             for item in chunk_data:
-                self._session.add(
-                    Chunk(
-                        document_id=document.id,
-                        chunk_id=item.chunk_id,
-                        chunk_index=item.chunk_index,
-                        text=item.text,
-                        page_start=item.page_start,
-                        page_end=item.page_end,
-                        section=item.section,
-                        char_count=item.char_count,
-                        metadata_json=item.metadata,
-                    )
+                chunk = Chunk(
+                    document_id=document.id,
+                    chunk_id=item.chunk_id,
+                    chunk_index=item.chunk_index,
+                    text=item.text,
+                    page_start=item.page_start,
+                    page_end=item.page_end,
+                    section=item.section,
+                    char_count=item.char_count,
+                    metadata_json=item.metadata,
                 )
+                self._session.add(chunk)
+                chunks.append(chunk)
 
             failed_pages = (
                 parsed_document.metadata.get("failed_pages") or []
@@ -146,6 +151,14 @@ class IngestionService:
             # Transaction boundary 2:
             # All chunks and the final Document state commit together.
             await self._session.commit()
+
+            # PostgreSQL is the source of truth. Vector indexing starts only
+            # after the document and chunks have been committed successfully.
+            if self._indexing_service is not None:
+                await self._indexing_service.index_document(
+                    document=document,
+                    chunks=chunks,
+                )
 
             return IngestionResult(
                 document_id=document.id,
