@@ -18,3 +18,9 @@ __pycache__/
 *.local.md
 # Local retrieval evaluation data
 eval/
+
+# Local project context
+PROJECT_CONTEXT.md
+
+# Local project context
+PROJECT_CONTEXT.md

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Response, status
 
+from app.api.answers import router as answers_router
 from app.api.documents import router as documents_router
 
 from app.services.health import check_dependencies
@@ -41,4 +42,5 @@ async def dependencies_health(response: Response) -> dict[str, object]:
         "dependencies": dependencies,
     }
 
+app.include_router(answers_router)
 app.include_router(documents_router)

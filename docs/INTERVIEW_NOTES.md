@@ -75,3 +75,39 @@ PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重
 ### 为什么 Golden Dataset 必须人工标注？
 
 检索质量不能由模型自己给自己定义答案。每条 Query 必须由人确认最相关的目标 Chunk，否则指标可能衡量的是错误标签，而不是 Retriever。
+
+---
+
+## Day 6：可信问答
+
+### 为什么回答不能直接使用 Qdrant Payload 中的内容？
+
+Qdrant 是可重建检索索引，不是事实来源。Payload 只保存过滤、定位和引用需要的元数据，完整 Chunk 正文仍应从 PostgreSQL 回查。
+
+### 为什么 Citation 不能完全交给 LLM 生成？
+
+模型可能生成不存在、错位或不能支持结论的引用。系统应根据实际进入 Context 的 Chunk 构造可验证 Citation。
+
+### Context Builder 和 Retriever 的职责有什么区别？
+
+Retriever 负责找出相关 Chunk；Context Builder 负责把已经检索并回查的 Chunk 排序、格式化和截断，形成适合 LLM 使用的上下文。
+
+### 为什么要抽象 LLM Provider？
+
+AnswerService 需要的是稳定的“根据问题和上下文生成回答”能力，不应绑定 DeepSeek 的具体请求格式、鉴权方式和响应结构。
+
+### 为什么 Workspace 校验要在回答链路开始时执行？
+
+不存在的 Workspace 不应继续生成 Embedding、访问 Qdrant 或调用 LLM。入口校验可以尽早失败并减少无效开销。
+
+### 为什么无证据时应该拒答？
+
+可信问答的目标不是保证每个问题都有答案，而是只在证据充分时回答。无证据时拒答可以降低幻觉和错误归因风险。
+
+### 真实 RAG E2E 与单元测试有什么区别？
+
+单元测试可以用 Mock 验证接口契约和分支逻辑；真实 E2E 必须让 PostgreSQL、Qdrant、Embedding、Context Builder 和外部 LLM 都参与。
+
+### 为什么第一次回答请求可能明显更慢？
+
+Sentence Transformer 通常采用延迟加载。第一次查询需要加载模型权重并初始化推理资源，之后同一进程可以复用模型。

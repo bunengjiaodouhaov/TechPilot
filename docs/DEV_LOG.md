@@ -113,3 +113,51 @@
 - `TestClient` 与异步数据库跨事件循环，真实上传验证改为网页上传和独立异步检查。
 - 评测脚本直接执行时缺少项目路径，统一从项目根目录使用 `PYTHONPATH=.`。
 - 失败报告代码曾因片段粘贴位置错误产生缩进异常，最终以完整函数替换解决。
+
+---
+
+## Day 6：可信问答
+
+### 完成
+
+- 新增 Answer DTO
+- 新增 Citation DTO
+- 实现 Context Builder
+- 实现 Context Enricher
+- 实现 DeepSeek Provider
+- 实现 AnswerService
+- 将 Dense Retrieval 接入回答链路
+- 根据检索结果回查 PostgreSQL Chunk 正文
+- 实现 `POST /answers`
+- 支持 Citation 返回
+- 支持 Refused
+- 完成真实 DeepSeek E2E
+
+### 关键设计
+
+- Retrieval 只负责召回，不负责回答。
+- PostgreSQL 是 Chunk 正文事实来源，Qdrant 不保存完整正文。
+- Dense Retrieval 返回 Chunk ID，再回查 PostgreSQL 获取上下文。
+- Context Builder 负责组织 Prompt，不负责执行检索。
+- AnswerService 统一协调 Workspace 校验、检索、上下文构建与 LLM 调用。
+- Citation 来源于真实检索结果，而不是模型自由生成。
+- 无证据时返回 Refused，而不是生成可能错误的回答。
+
+### 验收
+
+- `POST /answers`：PASS
+- Workspace 校验：PASS
+- Dense Retrieval：PASS
+- PostgreSQL Chunk 回查：PASS
+- Context Builder：PASS
+- DeepSeek：PASS
+- Citation：PASS
+- Refused：PASS
+- Real End-to-End：PASS
+
+### 错误与修复
+
+- 最初误判数据库 Session 导入位置，重新阅读项目代码后改为正确依赖。
+- Answer E2E 初期仅验证业务逻辑，最终改为真实 PostgreSQL、Qdrant、Embedding 与 DeepSeek 全链路验证。
+- 首次请求耗时较长，经日志确认主要来自 Sentence Transformer 冷启动，而不是数据库查询。
+- 回答引用旧项目状态，最终确认属于知识库文档未更新，而不是 Retrieval 或 Answer Pipeline 的问题。

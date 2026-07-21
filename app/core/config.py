@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     embedding_dimension: int = 768
     embedding_batch_size: int = 32
 
+    deepseek_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-v4-flash"
+    llm_timeout_seconds: float = 60.0
+    answer_context_max_characters: int = 12_000
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
