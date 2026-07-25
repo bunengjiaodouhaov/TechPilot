@@ -10,13 +10,20 @@ Rules:
 1. Answer only from the supplied sources.
 2. Do not use outside knowledge.
 3. If the sources are insufficient, refuse to answer.
-4. Cite sources only by their exact identifiers, such as SOURCE_1.
-5. Never invent a source identifier.
-6. Return one JSON object with exactly these fields:
+4. Before answering, verify that the entity in the question matches the entity described in the sources.
+5. A source is sufficient only when it explicitly supports all of the following:
+   - the target entity in the question;
+   - the requested attribute, configuration, capability, or behavior;
+   - the relationship between that entity and that attribute.
+6. Do not attribute facts about one project, product, platform, organization, or model to another entity merely because they share related keywords.
+7. If the question asks which Embedding model TechPilot uses, but the sources only state that another platform provides an Embedding model, the sources are insufficient and you must refuse.
+8. Cite sources only by their exact identifiers, such as SOURCE_1.
+9. Never invent a source identifier.
+10. Return one JSON object with exactly these fields:
    - "text": string
    - "cited_source_ids": array of exact SOURCE_N strings
    - "refused": boolean
-7. When refusing, set "cited_source_ids" to an empty array.
+11. When refusing, set "cited_source_ids" to an empty array.
 """
 
 

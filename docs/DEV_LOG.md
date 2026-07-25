@@ -161,3 +161,50 @@
 - Answer E2E 初期仅验证业务逻辑，最终改为真实 PostgreSQL、Qdrant、Embedding 与 DeepSeek 全链路验证。
 - 首次请求耗时较长，经日志确认主要来自 Sentence Transformer 冷启动，而不是数据库查询。
 - 回答引用旧项目状态，最终确认属于知识库文档未更新，而不是 Retrieval 或 Answer Pipeline 的问题。
+
+---
+
+## Day 7：回答质量评测与文档删除
+
+### 完成
+
+- 为 Document 增加 `deleted_at`。
+- 新增 Alembic Migration：`79831d7f5198_add_document_soft_delete.py`。
+- 新增 `DocumentService.delete_document()`。
+- 实现 `DELETE /documents/{document_id}`。
+- PostgreSQL 软删除成功提交后，再 Best-effort 清理 Qdrant。
+- Qdrant Repository 支持按 `workspace_id + document_id` 删除 Points。
+- Dense Retrieval 排除已删除 Document。
+- PostgreSQL Chunk 回查排除已删除 Document。
+- 新增删除服务测试与删除 API 测试。
+- 新增 `scripts/answer_eval.py`。
+- 通过真实 `AnswerService` 执行回答评测并输出 JSONL。
+- 完成删除后的三条无答案评测。
+- 强化 LLM System Prompt 的主体一致性和证据充分性规则。
+
+### 关键设计
+
+- PostgreSQL 继续作为事实来源；Qdrant 只是可重建索引。
+- 删除操作先提交 PostgreSQL，避免向量先删除而数据库事务失败。
+- Qdrant Cleanup 失败不回滚 PostgreSQL 软删除。
+- 当前使用 Best-effort Cleanup；长期方案为 Outbox Pattern。
+- Retrieval 相关不代表 Evidence 足以支持结论。
+- 回答前必须验证问题主体、证据主体、询问属性及其关系。
+- Citation 只能来自实际进入 Context 的来源。
+
+### 验收
+
+- Soft Delete：PASS
+- Deleted-document Retrieval Isolation：PASS
+- Qdrant Cleanup：PASS
+- Answer Evaluation：3/3 PASS
+- Entity Scope Mismatch Fix：PASS
+- pytest：119 passed
+- Starlette/httpx 弃用警告：非阻塞
+
+### 错误与修复
+
+- 删除后的第一条问题仍返回 Pangu 模型名称。
+- 检索返回的是未删除但不支持结论的 Pangu 文档，因此不是软删除故障。
+- 根因是 Entity Scope Mismatch：证据只说明盘古平台提供该模型，不能证明 TechPilot 使用该模型。
+- 修复 System Prompt 后，三条问题均拒答且 Citation 数量为 0。

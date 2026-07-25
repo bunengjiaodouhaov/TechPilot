@@ -42,6 +42,7 @@ class ChunkRepository:
             .where(
                 Chunk.id.in_(normalized_ids),
                 Document.workspace_id == workspace_id,
+                Document.deleted_at.is_(None),
             )
         )
 

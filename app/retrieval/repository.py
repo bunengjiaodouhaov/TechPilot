@@ -26,3 +26,12 @@ class VectorRepository(Protocol):
     ) -> list[VectorSearchHit]:
         """Search similar vectors within one workspace."""
         ...
+
+    async def delete_document_points(
+        self,
+        *,
+        workspace_id: int,
+        document_id: int,
+    ) -> None:
+        """Delete all vector points belonging to one document."""
+        ...

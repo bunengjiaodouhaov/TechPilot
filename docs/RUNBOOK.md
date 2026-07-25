@@ -73,24 +73,6 @@ E2E RESULT: PASS
 
 ## Day 4–5：基础检索
 
-### 启动依赖
-
-```bash
-docker compose up -d
-```
-
-### 编译检查
-
-```bash
-python -m py_compile app/retrieval/embedding.py app/retrieval/dto.py app/retrieval/repository.py app/retrieval/qdrant_repository.py app/retrieval/indexing_service.py app/retrieval/dense_retrieval_service.py scripts/retrieval_eval.py
-```
-
-### 自动化测试
-
-```bash
-pytest -q
-```
-
 ### 运行 Dense Retrieval Baseline
 
 从项目根目录执行：
@@ -118,14 +100,6 @@ failure_report: eval/retrieval_failures.jsonl
 eval/
 ```
 
-其中可包含：
-
-```text
-retrieval_golden.jsonl
-retrieval_failures.jsonl
-source_chunks.local.jsonl
-```
-
 ### 常见错误
 
 #### `ModuleNotFoundError: No module named 'app'`
@@ -136,29 +110,11 @@ PYTHONPATH=. python scripts/retrieval_eval.py
 
 #### `KeyError: expected_document_id`
 
-说明 Golden Dataset 存在旧 Schema。每行必须包含：
-
-```text
-query
-workspace_id
-expected_document_id
-expected_document_name
-expected_chunk_id
-expected_chunk_index
-expected_section
-```
+说明 Golden Dataset 存在旧 Schema。
 
 #### `IndentationError`
 
-不要在函数外拼接带缩进的片段。使用完整函数或完整文件替换，并先运行：
-
-```bash
-python -m py_compile scripts/retrieval_eval.py
-```
-
-#### Hugging Face 未认证警告
-
-不影响本地模型加载和评测结果。需要提高下载限额时再配置 `HF_TOKEN`。
+不要在函数外拼接带缩进的片段。使用完整函数或完整文件替换。
 
 ## Day 6：可信问答
 
@@ -171,12 +127,6 @@ uvicorn app.main:app --reload
 ```
 
 ### Swagger 验证
-
-打开：
-
-```text
-http://127.0.0.1:8000/docs
-```
 
 执行：
 
@@ -202,46 +152,102 @@ answer 非空
 citations 非空
 ```
 
-### 真实 E2E
-
-```text
-POST /answers
-  ↓
-Workspace 校验
-  ↓
-Dense Retrieval
-  ↓
-PostgreSQL Chunk 回查
-  ↓
-Context Builder
-  ↓
-DeepSeek
-  ↓
-Answer + Citation
-```
-
-检查项：
-
-- PostgreSQL 中存在 Chunk
-- Qdrant 中存在对应向量
-- DeepSeek API Key 已配置
-- 返回 Answer
-- 返回 Citation
-- 无异常报错
-
 ### 首次请求较慢
 
-第一次请求会加载 Sentence Transformer 模型。日志可能出现：
+第一次请求会加载 Sentence Transformer 模型。这属于正常冷启动。
 
-```text
-Loading weights: 100%
+## Day 7：回答质量评测与文档删除
+
+### 应用数据库迁移
+
+```bash
+alembic upgrade head
+alembic current
 ```
 
-这属于正常冷启动。同一应用进程中的后续请求会复用已加载模型。
+确认当前数据库包含 Document 的 `deleted_at` 字段。
 
-### 回答内容与当前代码状态不一致
+### 删除文档
 
-优先检查引用的源文档是否已经过时。RAG 会基于知识库内容回答；若知识库仍描述早期项目阶段，模型可能正确引用旧文档，但结论不符合当前代码状态。这属于知识库维护问题，不应直接判断为检索代码故障。
+Swagger：
+
+```text
+DELETE /documents/{document_id}
+```
+
+需要提供：
+
+```text
+document_id=<目标 Document ID>
+workspace_id=<目标 Workspace ID>
+```
+
+删除成功后：
+
+- PostgreSQL 中 `deleted_at` 非空。
+- 该 Document 不再参与回答和检索。
+- Qdrant 中对应 Points 执行 Best-effort Cleanup。
+
+### 运行回答评测
+
+从项目根目录执行：
+
+```bash
+PYTHONPATH=. python scripts/answer_eval.py   --output eval/answer_results_after_entity_scope_fix.jsonl
+```
+
+快速检查结果：
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("eval/answer_results_after_entity_scope_fix.jsonl")
+
+for line in path.read_text(encoding="utf-8").splitlines():
+    row = json.loads(line)
+    actual = row["actual"]
+    print(
+        row["case"]["id"],
+        f"refused={actual['refused']}",
+        f"citations={len(actual['citations'])}",
+        f"answer={actual['answer_text']}",
+    )
+PY
+```
+
+删除后的三条无答案 Case 预期：
+
+```text
+answer-001 refused=True citations=0
+answer-002 refused=True citations=0
+answer-003 refused=True citations=0
+```
+
+### 删除后仍返回答案
+
+依次判断：
+
+1. Citation 是否来自已删除文档。
+2. PostgreSQL 查询是否过滤 `deleted_at`。
+3. 检索结果是否来自其他未删除文档。
+4. 该未删除文档是否真的支持目标主体及询问属性。
+5. 若只存在关键词相关性而没有主体关系，属于 Entity Scope Mismatch。
+
+不要把“检索到了相关内容”直接等同于“证据足以回答”。
+
+### Qdrant Cleanup 失败
+
+当前设计允许 PostgreSQL 软删除成功、Qdrant Cleanup 失败。
+
+原因：
+
+- PostgreSQL 是事实来源。
+- Retrieval 还会通过 PostgreSQL 状态过滤已删除文档。
+- Cleanup 属于 Best-effort 操作。
+
+应检查日志并重试清理。长期改进方案为 Outbox Pattern。
 
 ## 通用常见问题
 

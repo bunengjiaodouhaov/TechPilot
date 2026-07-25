@@ -2,11 +2,11 @@
 
 ## 当前版本
 
-v0.5-dev
+v0.6-dev
 
 ## 当前阶段
 
-P1：文档 RAG — 可信问答主链路完成
+P1：文档 RAG — 可信问答与回答质量评测完成
 
 ## 阶段状态
 
@@ -15,7 +15,7 @@ P1：文档 RAG — 可信问答主链路完成
 - Day 3：已完成
 - Day 4–5：已完成
 - Day 6：已完成
-- Day 7：待开始
+- Day 7：已完成
 
 ## 已完成
 
@@ -80,10 +80,25 @@ P1：文档 RAG — 可信问答主链路完成
 - 支持无证据拒答
 - 完成真实 Answer E2E
 
+### Day 7：回答质量评测与文档删除
+
+- 为 Document 增加 `deleted_at` 软删除字段和 Alembic Migration
+- 实现 `DELETE /documents/{document_id}`
+- PostgreSQL 作为事实来源，先提交软删除，再 Best-effort 清理 Qdrant
+- Dense Retrieval 和 Chunk 正文回查均排除已删除文档
+- Qdrant 支持按 `workspace_id + document_id` 删除向量
+- 新增 `DocumentService`
+- 新增删除服务与删除 API 自动化测试
+- 新增 `scripts/answer_eval.py`
+- 通过真实 `AnswerService` 输出 JSONL 评测结果
+- 发现并修复 Entity Scope Mismatch
+- 强化 Evidence Sufficiency 与主体一致性规则
+- 完成删除后回答评测：3/3 PASS
+
 ## Day 4–5 验收证据
 
 - `python -m py_compile scripts/retrieval_eval.py`：PASS
-- `pytest -q`：47 passed
+- pytest：47 passed
 - Qdrant Repository Smoke：PASS
 - 真实文档向量索引：179 Points
 - Golden Dataset：30 条
@@ -104,49 +119,20 @@ P1：文档 RAG — 可信问答主链路完成
 - Refused：PASS
 - Real End-to-End：PASS
 
-## 当前架构
+## Day 7 验收证据
 
-```text
-HTTP Upload
-  ↓
-FastAPI documents route
-  ↓
-IngestionService
-  ↓
-ParserRouter
-  ↓
-MarkdownParser / PDFParser
-  ↓
-StructureAwareChunker
-  ↓
-Document + Chunk ORM
-  ↓
-PostgreSQL
-  ↓
-IndexingService
-  ├── EmbeddingProvider
-  └── VectorRepository
-        ↓
-      Qdrant
+- Document Soft Delete：PASS
+- Deleted-document Retrieval Isolation：PASS
+- Best-effort Qdrant Cleanup：PASS
+- Delete Service / API Tests：PASS
+- Entity Scope Mismatch Regression：PASS
+- Post-delete Answer Evaluation：3/3 PASS
+- 完整自动化测试：119 passed
+- 非阻塞警告：FastAPI TestClient 的 Starlette/httpx 弃用警告
 
-User Query
-  ↓
-POST /answers
-  ↓
-AnswerService
-  ├── Workspace 校验
-  ├── DenseRetrievalService
-  │     ├── EmbeddingProvider
-  │     └── VectorRepository
-  │           ↓
-  │         Top-K VectorSearchHit
-  ├── PostgreSQL Chunk 正文回查
-  ├── Context Enricher
-  ├── Context Builder
-  └── DeepSeek Provider
-        ↓
-      Answer + Citation + Refused
-```
+## 架构文档
+
+系统架构、数据流和关键设计边界统一维护在 `docs/ARCHITECTURE.md`。
 
 ## 已知非阻塞问题
 
@@ -159,18 +145,9 @@ AnswerService
 - Dense Retrieval 的 4 条失败案例保留在本地，后续阶段再分析，不阻塞当前验收。
 - 首次回答会触发 Embedding 模型冷启动，请求耗时明显高于后续请求。
 - 当前 Context Builder 采用 Top-K 上下文组织方式，尚未加入 Reranker。
-- 当前尚未完成系统化回答质量、引用正确性和拒答评测。
+- Qdrant 删除当前采用 Best-effort Cleanup，长期方案为 Outbox Pattern。
 - 部分早期知识库文档可能已经过时。
 
 ## 下一步
 
-Day 7：回答质量评测
-
-- 建立 Answer Evaluation Dataset
-- 加入至少 10 条无答案问题
-- 统计 Refused Accuracy
-- 检查 Citation 是否支持回答
-- 记录错误回答率
-- 优化 Prompt
-- 优化 Context Builder
-- 为后续 Hybrid Retrieval 做准备
+进入总控手册中的下一阶段；开始前先确认对应 Milestone、目标和验收标准。

@@ -42,19 +42,11 @@ Parser 尽量还原源文件结构；Chunker 生成适合检索的知识单元�
 
 ### 为什么要抽象 EmbeddingProvider？
 
-上层服务只需要“文档向量化”和“查询向量化”能力，不应绑定 Sentence Transformers 的具体 API。这样模型实现可以替换，业务代码和测试保持稳定。
-
-### 为什么 E5 的文档和查询要使用不同前缀？
-
-E5 按检索任务训练，文档使用 `passage:`，查询使用 `query:`。Provider 统一处理前缀，避免调用方遗漏。
-
-### 为什么 Repository 不直接返回 Qdrant SDK 对象？
-
-业务层不应依赖具体向量库。Repository 把 Qdrant 对象转换成内部 DTO，使存储实现可替换，并缩小 SDK 变化的影响范围。
+上层服务只需要“文档向量化”和“查询向量化”能力，不应绑定 Sentence Transformers 的具体 API。
 
 ### PostgreSQL 和 Qdrant 谁是事实来源？
 
-PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重建的向量索引。向量写入失败时，不应丢失已经成功摄取的原始数据。
+PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重建的向量索引。
 
 ### 为什么索引要在 PostgreSQL Commit 后执行？
 
@@ -62,19 +54,19 @@ PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重
 
 ### 为什么 Qdrant 搜索必须强制带 workspace_id？
 
-所有 Workspace 共用一个环境级 Collection。强制 Filter 才能保证租户数据隔离，不能依赖调用方自觉。
+所有 Workspace 共用一个环境级 Collection。强制 Filter 才能保证租户数据隔离。
 
 ### Recall@5 是什么？
 
-30 条评测问题中，只要目标 Chunk 出现在前 5 个结果内就算召回成功。当前 26 条成功，因此 Recall@5 为 26/30，即 0.866667。
+30 条评测问题中，只要目标 Chunk 出现在前 5 个结果内就算召回成功。当前为 0.866667。
 
 ### MRR@5 是什么？
 
-对每条问题取目标 Chunk 排名的倒数，再对全部问题求平均。排名越靠前，MRR 越高；未进入前 5 的问题贡献 0。
+对每条问题取目标 Chunk 排名的倒数，再对全部问题求平均。
 
 ### 为什么 Golden Dataset 必须人工标注？
 
-检索质量不能由模型自己给自己定义答案。每条 Query 必须由人确认最相关的目标 Chunk，否则指标可能衡量的是错误标签，而不是 Retriever。
+检索质量不能由模型自己给自己定义答案。每条 Query 必须由人确认最相关目标 Chunk。
 
 ---
 
@@ -82,32 +74,57 @@ PostgreSQL 是事实来源，保存 Document 和 Chunk 正文；Qdrant 是可重
 
 ### 为什么回答不能直接使用 Qdrant Payload 中的内容？
 
-Qdrant 是可重建检索索引，不是事实来源。Payload 只保存过滤、定位和引用需要的元数据，完整 Chunk 正文仍应从 PostgreSQL 回查。
+Qdrant 是可重建检索索引，不是事实来源。完整 Chunk 正文应从 PostgreSQL 回查。
 
 ### 为什么 Citation 不能完全交给 LLM 生成？
 
-模型可能生成不存在、错位或不能支持结论的引用。系统应根据实际进入 Context 的 Chunk 构造可验证 Citation。
+模型可能生成不存在、错位或不能支持结论的引用。系统应根据实际进入 Context 的 Chunk 构造 Citation。
 
 ### Context Builder 和 Retriever 的职责有什么区别？
 
-Retriever 负责找出相关 Chunk；Context Builder 负责把已经检索并回查的 Chunk 排序、格式化和截断，形成适合 LLM 使用的上下文。
-
-### 为什么要抽象 LLM Provider？
-
-AnswerService 需要的是稳定的“根据问题和上下文生成回答”能力，不应绑定 DeepSeek 的具体请求格式、鉴权方式和响应结构。
-
-### 为什么 Workspace 校验要在回答链路开始时执行？
-
-不存在的 Workspace 不应继续生成 Embedding、访问 Qdrant 或调用 LLM。入口校验可以尽早失败并减少无效开销。
+Retriever 负责找出相关 Chunk；Context Builder 负责把 Chunk 排序、格式化和截断。
 
 ### 为什么无证据时应该拒答？
 
-可信问答的目标不是保证每个问题都有答案，而是只在证据充分时回答。无证据时拒答可以降低幻觉和错误归因风险。
+可信问答只在证据充分时回答。拒答可以降低幻觉和错误归因风险。
 
-### 真实 RAG E2E 与单元测试有什么区别？
+---
 
-单元测试可以用 Mock 验证接口契约和分支逻辑；真实 E2E 必须让 PostgreSQL、Qdrant、Embedding、Context Builder 和外部 LLM 都参与。
+## Day 7：回答质量评测与文档删除
 
-### 为什么第一次回答请求可能明显更慢？
+### 为什么 Document 使用软删除，而不是直接物理删除？
 
-Sentence Transformer 通常采用延迟加载。第一次查询需要加载模型权重并初始化推理资源，之后同一进程可以复用模型。
+软删除可以保留审计信息和业务历史，并允许检索层立即通过状态过滤停止使用该文档。物理清理可以作为后续独立流程处理。
+
+### 为什么先提交 PostgreSQL 软删除，再清理 Qdrant？
+
+PostgreSQL 是事实来源。先提交数据库状态，可以保证业务上删除已经生效。Qdrant 是可重建索引，其清理失败不应让数据库删除事务回滚。
+
+### Best-effort Cleanup 有什么风险？
+
+Qdrant 可能短期保留已删除文档的孤立向量。当前通过 PostgreSQL 状态过滤保证回答链路不使用它们；长期可使用 Outbox Pattern 实现可靠异步重试。
+
+### 什么是 Entity Scope Mismatch？
+
+检索结果与问题在关键词或语义上相关，但证据描述的是另一个主体。模型把该事实错误归因给问题中的目标主体。
+
+### 为什么 Retrieval Relevance 不等于 Evidence Sufficiency？
+
+Retriever 优化的是语义相关性，而回答要求证据明确支持结论。证据必须同时匹配目标主体、询问属性，以及二者之间的关系。
+
+### Day 7 的真实失败案例是什么？
+
+问题询问 TechPilot 使用的 Embedding 模型，检索返回盘古平台文档。该文档只说明盘古平台提供 `Pangu-EmbeddingRank-zh`，不能证明 TechPilot 使用它。
+
+### 如何修复主体错配？
+
+System Prompt 要求回答前检查：
+
+1. 问题主体与证据主体是否一致。
+2. 证据是否支持询问的属性。
+3. 证据是否明确表达主体与属性之间的关系。
+4. 任一条件缺失时拒答且不返回 Citation。
+
+### 如何验证删除和拒答链路？
+
+删除支持 TechPilot 项目事实的文档后，运行真实 `AnswerService` 评测。三条问题均返回 `refused=True`、`citations=0`，结果为 3/3 PASS。

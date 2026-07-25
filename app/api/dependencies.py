@@ -13,6 +13,7 @@ from app.answering.llm import LLMProvider
 from app.answering.workspace_repository import WorkspaceRepository
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
+from app.documents.service import DocumentService
 from app.ingestion.service import IngestionService
 from app.retrieval.embedding import (
     EmbeddingProvider,
@@ -67,6 +68,16 @@ def get_ingestion_service(
         session=session,
         indexing_service=get_indexing_service(),
     )
+
+def get_document_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> DocumentService:
+    """Build the document lifecycle service for one HTTP request."""
+    return DocumentService(
+        session=session,
+        vector_repository=get_vector_repository(),
+    )
+
 
 @lru_cache
 def get_dense_retrieval_service() -> DenseRetrievalService:

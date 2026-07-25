@@ -6,12 +6,22 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
+    Query,
+    Response,
     UploadFile,
     status,
 )
 from pydantic import BaseModel
 
-from app.api.dependencies import get_ingestion_service
+from app.api.dependencies import (
+    get_document_service,
+    get_ingestion_service,
+)
+from app.documents.service import (
+    DocumentNotFoundError,
+    DocumentService,
+)
 from app.ingestion.router import (
     FileTypeConflictError,
     UnsupportedFileTypeError,
@@ -102,3 +112,32 @@ async def upload_document(
         chunk_count=result.chunk_count,
         checksum=result.checksum,
     )
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_document(
+    document_id: Annotated[int, Path(gt=0)],
+    workspace_id: Annotated[int, Query(gt=0)],
+    service: Annotated[
+        DocumentService,
+        Depends(get_document_service),
+    ],
+) -> Response:
+    """Soft-delete one document and schedule vector cleanup."""
+
+    try:
+        await service.delete_document(
+            workspace_id=workspace_id,
+            document_id=document_id,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+

@@ -118,6 +118,44 @@ class QdrantRepository(VectorRepository):
             for point in response.points
         ]
 
+
+    async def delete_document_points(
+        self,
+        *,
+        workspace_id: int,
+        document_id: int,
+    ) -> None:
+        """Delete all points belonging to one document in one workspace."""
+
+        if workspace_id <= 0:
+            raise ValueError("workspace_id must be greater than zero")
+
+        if document_id <= 0:
+            raise ValueError("document_id must be greater than zero")
+
+        await self._client.delete(
+            collection_name=self._collection_name,
+            points_selector=qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="workspace_id",
+                            match=qdrant_models.MatchValue(
+                                value=workspace_id,
+                            ),
+                        ),
+                        qdrant_models.FieldCondition(
+                            key="document_id",
+                            match=qdrant_models.MatchValue(
+                                value=document_id,
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+            wait=True,
+        )
+
     @staticmethod
     def _to_qdrant_point(
         point: VectorPoint,
