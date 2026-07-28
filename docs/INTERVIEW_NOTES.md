@@ -180,3 +180,31 @@ System Prompt 要求回答前检查：
 ### 为什么运行错误不能算作正确拒答？
 
 运行错误表示系统没有完成一次有效评测。把错误计入拒答会人为降低错误回答率并掩盖稳定性问题。因此指标分母只使用成功执行且产生明确 `refused` 值的样本，运行错误单独报告。
+
+---
+
+## Day 10：P1 Gate Review
+
+### 为什么 P1 是 CONDITIONAL PASS，而不是直接 PASS？
+
+P1 核心工程链路、检索 Baseline、Citation 可追溯性、删除隔离和无答案安全性都有证据，但当前 10 条回答评测全部是 `answerable=false`。它们不能量化有答案时的正确性、Citation 支持性和过度拒答。因此工程主链路可以通过，但最终质量结论仍需一组包含正常样本与易混淆样本的 `answerable=true` 定量证据。
+
+### CONDITIONAL PASS 的唯一条件是什么？
+
+建立 `answerable=true` 定量评测集，覆盖正常问题和易混淆问题，并记录 answer correctness、citation support 和 over-refusal。失败案例必须保留并审查，不能用 `refused=false`、答案看起来合理或单次真实 E2E 代替质量判断。
+
+### 为什么 OCR 不属于 P1 条件？
+
+P1 已明确以 Markdown 和文本型 PDF 为摄取范围。OCR 会引入识别准确率、版面恢复、置信度和引用定位等新的质量维度，应作为独立摄取增强评估，而不是在 P1 Gate 临时扩大范围。
+
+### 为什么 Hybrid Retrieval 和 Reranker 不属于 P1 条件？
+
+P1 的目标是建立可测量的 Dense Retrieval Baseline 和可信回答闭环；当前 Recall@5、MRR@5 及失败案例已经记录。Hybrid Retrieval 和 Reranker 是基于 Baseline 的 P2 优化项，不应反向改变 P1 的退出条件。
+
+### 有答案质量为什么要同时记录 answer correctness 和 citation support？
+
+答案可能依赖模型参数知识而碰巧正确，但 Citation 并不支持它；也可能引用正确，但答案遗漏关键条件或加入文档外推测。可信回答要求答案正确、完整且被证据直接支持，因此两个维度必须分开记录。
+
+### over-refusal 说明什么？
+
+over-refusal 衡量系统面对有充分证据的问题却选择拒答的比例。只优化无答案拒答可能让系统过度保守，因此最终 P1 质量证据需要同时观察幻觉风险和可用性损失。

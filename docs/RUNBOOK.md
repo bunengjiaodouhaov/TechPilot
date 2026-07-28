@@ -376,8 +376,8 @@ docs/P1_GATE_EVIDENCE.md
 
 Day 9 不执行：
 
-- 不给出 P1 PASS / CONDITIONAL PASS / FIX 结论。
-- 不更新 README 的阶段完成声明。
+- Gate 结论由 Day 10 Review 给出。
+- README 的阶段声明必须在 Gate 结论之后更新。
 - 不关闭 P1 Milestone。
 - 不合并 Draft PR。
 
@@ -392,6 +392,100 @@ await engine.dispose()
 ```
 
 该处理只重置测试后的连接池，不改变生产请求逻辑。
+
+## Day 10：P1 CONDITIONAL PASS
+
+### 当前 Gate 状态
+
+```text
+P1 Gate: CONDITIONAL PASS
+```
+
+唯一待补条件：
+
+```text
+answerable=true 定量评测
+├── 正常样本
+├── 易混淆样本
+├── answer correctness
+├── citation support
+└── over-refusal
+```
+
+OCR、Hybrid Retrieval 和 Reranker 不属于 P1 Gate 条件。
+
+### 构建 answerable=true 数据集
+
+每条样本至少包含：
+
+```text
+id
+question
+workspace_id
+answerable=true
+reference_answer
+expected_document_names
+acceptance_criteria
+category
+notes
+```
+
+样本应同时覆盖：
+
+- 正常样本：证据直接、单一且清晰
+- 易混淆样本：相似术语、相邻 Chunk、跨文档数字或主体容易混淆
+
+### 运行评测
+
+```bash
+PYTHONPATH=. python scripts/answer_eval.py \
+  --dataset eval/answer_golden.jsonl \
+  --output eval/answer_results.jsonl \
+  --retrieval-limit 5
+```
+
+运行错误必须单独保留，不得计算为正确回答、正确拒答或过度拒答。
+
+### 逐条人工验收
+
+对每个 `answerable=true` 结果记录：
+
+```text
+answer_correct=true|false
+citation_supported=true|false
+failure_type=<null 或明确类型>
+notes=<判定依据>
+```
+
+通过样本至少满足：
+
+- `refused=false`
+- 答案正确且完整
+- 没有文档外推测
+- Citation 直接支持全部关键结论
+- 没有错误或多余 Citation
+
+### 汇总 Gate 条件证据
+
+至少记录：
+
+```text
+answerable_cases
+evaluated_answerable_cases
+answer_correct_count / rate
+citation_supported_count / rate
+over_refusals / over_refusal_rate
+runtime_errors
+retained_failure_cases
+```
+
+条件关闭前：
+
+- `docs/P1_GATE_EVIDENCE.md` 保持 `CONDITIONAL PASS`
+- P1 Milestone 保持未关闭
+- PR #2 保持未合并
+
+完成数据集、运行结果和失败审查后，再决定是否更新为最终 `PASS`。
 
 ## 通用常见问题
 

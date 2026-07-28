@@ -6,7 +6,7 @@ v0.6-dev
 
 ## 当前阶段
 
-P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
+P1：文档 RAG — Day 10 Gate Review 结论为 CONDITIONAL PASS
 
 ## 阶段状态
 
@@ -17,7 +17,8 @@ P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
 - Day 6：已完成
 - Day 7：已完成
 - Day 8：已完成
-- Day 9：证据整理完成，Gate 结论待 Day 10 决定
+- Day 9：已完成
+- Day 10：Gate Review 已完成，结论为 CONDITIONAL PASS
 
 ## 已完成
 
@@ -118,6 +119,18 @@ P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
 - 新增 `docs/P1_GATE_EVIDENCE.md`
 - README、Milestone 和 P1 Gate 结论继续留待 Day 10
 
+### Day 10：P1 Gate Review
+
+- P1 Gate 结论：`CONDITIONAL PASS`
+- 确认上传、索引、检索、回答、Citation、拒答、删除隔离和回归测试满足 P1 核心工程退出条件
+- 确认 10 条困难无答案样本只能证明无答案安全性，不能替代有答案质量评测
+- 将唯一条件限定为：补充包含正常样本和易混淆样本的 `answerable=true` 定量评测集
+- 条件要求记录 answer correctness、citation support 和 over-refusal
+- OCR 明确属于摄取增强，不作为 P1 条件
+- Hybrid Retrieval 和 Reranker 明确属于 P2，不作为 P1 条件
+- README 与 Gate 相关文档已同步为 `CONDITIONAL PASS`
+- P1 Milestone 和 PR #2 保持未关闭、未合并，等待条件证据
+
 ## Day 4–5 验收证据
 
 - `python -m py_compile scripts/retrieval_eval.py`：PASS
@@ -179,7 +192,16 @@ P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
 - Dependency Health Repeated 3 Times：PASS
 - `git diff --check`：PASS
 - Gate Evidence：`docs/P1_GATE_EVIDENCE.md`
-- P1 Gate Decision：PENDING DAY 10
+- P1 Gate Decision：CONDITIONAL PASS
+
+## P1 Gate 唯一未完成条件
+
+- 建立包含正常样本与易混淆样本的 `answerable=true` 定量评测集
+- 每条样本提供参考答案、期望来源和明确验收标准
+- 记录 answer correctness
+- 记录 Citation 是否直接支持全部关键结论
+- 统计 over-refusal
+- 保留失败样本并完成审查，再决定是否转为最终 `PASS`
 
 ## 架构文档
 
@@ -200,6 +222,8 @@ P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
 - 部分早期知识库文档可能已经过时。
 - 当前 10 条回答评测均为无答案样本，因此只能证明无答案安全性，不能计算有答案样本的过度拒答率或定量回答质量。
 
+其中 OCR、Hybrid Retrieval 和 Reranker 均不属于 P1 Gate 条件。当前唯一 Gate 条件是补齐并记录 `answerable=true` 定量质量证据。
+
 ## 下一步
 
-进入 Day 10：依据 `docs/P1_GATE_EVIDENCE.md` 进行 P1 Gate Review，给出 PASS / CONDITIONAL PASS / FIX 结论；结论确定后再更新 README、Milestone 和阶段声明。
+补充包含正常样本与易混淆样本的 `answerable=true` 定量评测，记录 answer correctness、citation support 和 over-refusal。完成并审查该证据后，再决定是否将 P1 从 `CONDITIONAL PASS` 更新为最终 `PASS`；OCR、Hybrid Retrieval 和 Reranker 不进入该条件。

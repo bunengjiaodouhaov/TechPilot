@@ -293,3 +293,35 @@
 - 在生命周期测试清理阶段执行 `await engine.dispose()`，强制后续测试建立新连接；未修改生产请求逻辑。
 - 第一版 10 条无答案问题在未知实际知识库内容时生成，证据基础不可靠，已废弃。
 - 重新核对当前有效 Document 与 Chunk，清理重复文档，并基于包含 1002 个 PDF Chunk 的完整语料重建最终评测集。
+
+---
+
+## Day 10：P1 Gate Review
+
+### 结论
+
+- P1 Gate：`CONDITIONAL PASS`
+- P1 核心工程闭环已满足：Upload -> Index -> Retrieve -> Answer -> Cite -> Delete -> Refuse
+- Dense Retrieval Baseline、Citation Traceability、无答案安全性和 126 条回归测试均有可复现证据
+
+### 唯一条件
+
+- 补充包含正常样本与易混淆样本的 `answerable=true` 定量评测集
+- 记录每条样本的 answer correctness
+- 记录 Citation 是否直接支持答案中的全部关键结论
+- 汇总 over-refusal
+- 保留失败样本并审查，不以 `refused=false` 或单次真实 E2E 代替质量结论
+
+### 非条件范围
+
+- OCR 不作为 P1 条件，属于后续文档摄取增强
+- Hybrid Retrieval 不作为 P1 条件，属于 P2 检索优化
+- Reranker 不作为 P1 条件，属于 P2 检索优化
+
+### 文档同步
+
+- README 更新为 P1 当前真实能力、运行方式、指标和 `CONDITIONAL PASS` 状态
+- `PROJECT_STATUS.md` 更新 Day 10 结论与唯一条件
+- `P1_GATE_EVIDENCE.md` 固化 Gate 决策、边界与条件关闭清单
+- `INTERVIEW_NOTES.md`、`RUNBOOK.md` 同步判断口径和执行步骤
+- PR #2 保持 Draft、未合并

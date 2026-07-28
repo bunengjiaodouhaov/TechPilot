@@ -2,8 +2,28 @@
 
 ## Purpose
 
-This document assembles reproducible P1 evidence for the Day 10 Gate Review.
-It does not declare `PASS`, `CONDITIONAL PASS`, or `FIX`.
+This document records the reproducible P1 evidence and the Day 10 Gate decision.
+
+## Gate decision
+
+**CONDITIONAL PASS**
+
+The P1 engineering loop, retrieval baseline, Citation traceability, deletion isolation,
+unanswerable safety and regression suite meet the current exit criteria.
+
+The only condition for converting this decision to final `PASS` is to:
+
+1. add a quantitative `answerable=true` dataset containing both normal and confusing cases;
+2. record answer correctness for each evaluated case;
+3. record whether the returned Citations directly support all material answer claims;
+4. report over-refusal for the evaluated answerable cases;
+5. retain and review failures instead of treating `refused=false` or a single successful E2E as proof of answer quality.
+
+No numeric quality threshold is invented by this review. The dataset, aggregation method
+and observed failures must be recorded before the final P1 decision.
+
+OCR, Hybrid Retrieval and Reranker are explicitly not P1 Gate conditions. OCR is an
+ingestion enhancement; Hybrid Retrieval and Reranker belong to P2 retrieval optimization.
 
 ## Review scope
 
@@ -18,7 +38,8 @@ P1 covers the first trustworthy document-RAG loop:
 - evidence-insufficient refusal
 - soft deletion and deleted-document isolation
 
-README and milestone completion remain deferred until the Day 10 Gate decision.
+README now reflects the Day 10 decision. The P1 milestone remains open while the single
+answerable-quality evidence condition is outstanding.
 
 ## Evidence matrix
 
@@ -36,7 +57,9 @@ README and milestone completion remain deferred until the Day 10 Gate decision.
 | Unanswerable safety | 10 corpus-grounded difficult negative cases; 10 correct refusals; 0 incorrect answers; 0 runtime errors | PASS | Incorrect-answer rate is `0.000000` |
 | Full regression suite | `pytest -q`: 126 passed | PASS | Starlette/httpx TestClient deprecation warning is non-blocking |
 | Repository hygiene | `git diff --check`: clean | PASS | No whitespace errors detected |
-| README and milestone declaration | Intentionally deferred | PENDING DAY 10 | Must follow, not precede, the Gate decision |
+| README declaration | Updated after the Day 10 review | PASS | README states `CONDITIONAL PASS` and the exact remaining condition |
+| Quantitative answerable quality | Normal and confusing `answerable=true` cases are not yet available | CONDITION OPEN | Must record answer correctness, Citation support and over-refusal |
+| P1 milestone | Remains open | CONDITIONAL | Close only after the answerable-quality evidence is recorded and reviewed |
 
 ## Day 9 lifecycle integration evidence
 
@@ -101,7 +124,9 @@ Interpretation boundary:
 - This dataset proves unanswerable safety, not answerable quality.
 - `over_refusal_rate` is `n/a`, not `0%`, because there are no answerable cases in this dataset.
 - Answerable behavior is evidenced separately by the real Answer E2E, lifecycle integration test and Citation regressions.
-- A future quantitative answer-quality dataset should contain both normal and confusing `answerable=true` cases with reference answers and expected source documents.
+- This missing quantitative answerable-quality evidence is the only open P1 Gate condition.
+- The required dataset must contain both normal and confusing `answerable=true` cases with reference answers, expected source documents and explicit acceptance criteria.
+- Per-case review must record answer correctness and Citation support; the aggregate must also report over-refusal.
 
 ## Stability issue found during integration
 
@@ -127,11 +152,18 @@ Validation after the fix:
 - Starlette/httpx TestClient emits a deprecation warning.
 - The local `eval/` datasets and raw result files are intentionally not committed.
 
-## Day 10 review questions
+OCR, Hybrid Retrieval and Reranker do not block final P1 `PASS`.
 
-Day 10 must decide:
+## Condition closure checklist
 
-1. Do the technical exit conditions support `PASS`, `CONDITIONAL PASS`, or `FIX`?
-2. Are the listed limitations non-blocking for P1?
-3. Is the absence of a quantitative answerable-quality score acceptable given the existing real E2E and deterministic Citation evidence?
-4. After the decision, which README, milestone and project-status declarations must be updated?
+The conditional decision can be reviewed for final `PASS` after all items below exist:
+
+- a versioned `answerable=true` dataset with normal and confusing cases;
+- `reference_answer`, `expected_document_names` and acceptance criteria for every case;
+- raw evaluation results with runtime errors kept separate;
+- manual or deterministic per-case `answer_correct` results;
+- per-case `citation_supported` results covering every material claim and excluding extraneous citations;
+- aggregate answer correctness, Citation support and over-refusal;
+- retained failure cases and a written review of whether any result blocks P1.
+
+Until then, the accurate external statement is `P1 CONDITIONAL PASS`, not final `PASS`.
