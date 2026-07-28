@@ -245,3 +245,51 @@
 - 首次全量测试中 `test_dependencies_health` 返回 503。
 - 检查后确认不是 Day 8 代码回归，而是测试执行时依赖健康状态未满足。
 - 启动并确认 PostgreSQL、Redis、Qdrant 后，依赖健康测试与全量测试均通过。
+
+---
+
+## Day 9：P1 集成验证与 Gate 证据
+
+### 完成
+
+- 新增 `tests/integration/test_p1_document_rag_lifecycle.py`。
+- 通过 HTTP API 验证上传、回答、Citation、删除和删除后拒答。
+- 生命周期测试使用真实 PostgreSQL、Embedding 和 Qdrant。
+- 使用会校验 Prompt 的确定性 Fake LLM，要求 Prompt 中存在 `SOURCE_1` 和本次上传的唯一证据。
+- 扩展 `scripts/answer_eval.py`，计算运行错误、过度拒答、正确拒答、错误回答和对应比率。
+- 新增 `tests/scripts/test_answer_eval.py`，验证指标分母和 `n/a` 语义。
+- 基于当前有效知识库重新构建 10 条困难无答案样本。
+- 当前评测 Workspace 包含 5 份有效文档、1153 个 Chunk，其中盘古 PDF 为 1002 个 Chunk。
+- 新增 `docs/P1_GATE_EVIDENCE.md`，集中整理 Day 10 Review 所需证据。
+
+### 关键设计
+
+- 自动化测试数量不等于 Gate 覆盖率；Gate 还要证明真实边界、生命周期、失败语义、指标和可复现命令。
+- Fake LLM 负责确定性验证编排与数据边界；真实 DeepSeek E2E 负责验证 Provider、网络、请求格式和结构化返回。
+- Fake LLM 不能无条件返回 `SOURCE_1`，否则会掩盖 Context 缺失或 Prompt 构造错误。
+- 无答案评测中的运行错误单独统计，不能算作正确拒答或错误回答。
+- `over_refusal_rate` 只对成功执行的 `answerable=true` 样本计算；全是无答案样本时必须输出 `n/a`。
+- 回答正确不等于可信回答；答案完整性和 Citation 直接支持性必须同时成立。
+
+### 验收
+
+- P1 Lifecycle Integration：PASS
+- Upload -> Persist -> Index -> Retrieve -> Answer -> Cite -> Delete -> Refuse：PASS
+- Answer Evaluation Summary Tests：3 passed
+- Full Test Suite：126 passed
+- Dependency Health Test Repeated 3 Times：PASS
+- `git diff --check`：PASS
+- Unanswerable Cases：10
+- Correct Refusals：10
+- Incorrect Answers：0
+- Incorrect-answer Rate：0.000000
+- Runtime Errors：0
+- Starlette/httpx 弃用警告：非阻塞
+
+### 错误与修复
+
+- 全量测试曾在生命周期测试之后使 `test_dependencies_health` 返回 503，但单独请求依赖健康接口为 200。
+- 根因是全局 SQLAlchemy AsyncEngine 可能保留绑定到 pytest 事件循环的 asyncpg 连接；后续同步 TestClient 使用另一个事件循环。
+- 在生命周期测试清理阶段执行 `await engine.dispose()`，强制后续测试建立新连接；未修改生产请求逻辑。
+- 第一版 10 条无答案问题在未知实际知识库内容时生成，证据基础不可靠，已废弃。
+- 重新核对当前有效 Document 与 Chunk，清理重复文档，并基于包含 1002 个 PDF Chunk 的完整语料重建最终评测集。
