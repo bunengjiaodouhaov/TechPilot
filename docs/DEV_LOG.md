@@ -208,3 +208,40 @@
 - 检索返回的是未删除但不支持结论的 Pangu 文档，因此不是软删除故障。
 - 根因是 Entity Scope Mismatch：证据只说明盘古平台提供该模型，不能证明 TechPilot 使用该模型。
 - 修复 System Prompt 后，三条问题均拒答且 Citation 数量为 0。
+
+---
+
+## Day 8：引用、页码与上下文回归
+
+### 完成
+
+- 新增 `tests/answering/test_citation_traceability.py`。
+- 增加 Markdown 标题路径跨层回归测试。
+- 增加 PDF 页码范围跨层回归测试。
+- 增加 Context Budget 排除来源的引用拒绝测试。
+- 未修改生产代码，保持现有可信问答架构不变。
+
+### 关键设计
+
+- Citation Traceability 必须从 Parser 元数据一直追踪到服务端 Citation，不能只验证单层格式化函数。
+- LLM 只允许返回内部 `SOURCE_N` 标识；文档名、页码、章节和原文均由服务端从实际进入 Context 的 Chunk 构造。
+- 被 Context Budget 排除的 Chunk 不进入 `BuiltContext.sources`，因此对应来源标识必须被视为未知来源并拒绝。
+- 回归测试优先证明既有设计边界，不因 Day 8 验收而引入不必要的生产逻辑修改。
+
+### 验收
+
+- Citation Traceability Tests：3 passed
+- Markdown Heading Path Propagation：PASS
+- PDF Page Range Propagation：PASS
+- Omitted Source Citation Rejection：PASS
+- Dependency Health：HTTP 200
+- PostgreSQL / Redis / Qdrant：全部 `ok`
+- pytest：122 passed
+- `git diff --check`：PASS
+- Starlette/httpx 弃用警告：非阻塞
+
+### 错误与修复
+
+- 首次全量测试中 `test_dependencies_health` 返回 503。
+- 检查后确认不是 Day 8 代码回归，而是测试执行时依赖健康状态未满足。
+- 启动并确认 PostgreSQL、Redis、Qdrant 后，依赖健康测试与全量测试均通过。
