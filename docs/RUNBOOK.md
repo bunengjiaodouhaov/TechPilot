@@ -193,7 +193,8 @@ workspace_id=<目标 Workspace ID>
 从项目根目录执行：
 
 ```bash
-PYTHONPATH=. python scripts/answer_eval.py   --output eval/answer_results_after_entity_scope_fix.jsonl
+PYTHONPATH=. python scripts/answer_eval.py \
+  --output eval/answer_results_after_entity_scope_fix.jsonl
 ```
 
 快速检查结果：
@@ -248,6 +249,149 @@ answer-003 refused=True citations=0
 - Cleanup 属于 Best-effort 操作。
 
 应检查日志并重试清理。长期改进方案为 Outbox Pattern。
+
+## Day 9：P1 集成验证与 Gate 证据
+
+### 同步 Day 9 分支
+
+```bash
+git switch day9-p1-gate-evidence
+git pull --ff-only origin day9-p1-gate-evidence
+```
+
+### 运行定向测试
+
+```bash
+pytest -q tests/scripts/test_answer_eval.py
+pytest -q tests/integration/test_p1_document_rag_lifecycle.py
+```
+
+验证生命周期测试之后的依赖健康：
+
+```bash
+pytest -q \
+  tests/integration/test_p1_document_rag_lifecycle.py \
+  tests/test_health.py::test_dependencies_health
+```
+
+### 运行完整回归
+
+```bash
+pytest -q
+git diff --check
+```
+
+Day 9 已验证结果：
+
+```text
+126 passed
+git diff --check: clean
+```
+
+已知非阻塞警告：
+
+```text
+StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated
+```
+
+### 重复验证依赖健康
+
+```bash
+for i in 1 2 3; do
+  echo "health run $i"
+  pytest -q tests/test_health.py::test_dependencies_health || exit 1
+done
+```
+
+三次均应通过。
+
+### 运行 10 条无答案评测
+
+评测数据和原始结果保留在本地 `eval/`，不提交 GitHub。
+
+```bash
+PYTHONPATH=. python scripts/answer_eval.py \
+  --dataset eval/answer_golden.jsonl \
+  --output eval/answer_results.jsonl \
+  --retrieval-limit 5
+```
+
+预期汇总：
+
+```text
+cases: 10
+runtime_errors: 0
+answerable_cases: 0
+evaluated_answerable_cases: 0
+over_refusals: 0
+over_refusal_rate: n/a
+unanswerable_cases: 10
+evaluated_unanswerable_cases: 10
+correct_refusals: 10
+incorrect_answers: 0
+incorrect_answer_rate: 0.000000
+```
+
+注意：
+
+- `over_refusal_rate: n/a` 不是 `0%`。
+- 这 10 条只能证明无答案安全性，不能证明有答案质量。
+- 运行错误必须单独报告，不能计入正确拒答。
+
+### 检查本地评测结果
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("eval/answer_results.jsonl")
+
+for line in path.read_text(encoding="utf-8").splitlines():
+    row = json.loads(line)
+    case = row["case"]
+    actual = row["actual"]
+    print(
+        case["id"],
+        f"refused={actual['refused']}",
+        f"citations={len(actual['citations'])}",
+        f"error={actual['error']}",
+    )
+PY
+```
+
+10 条 Case 均应为：
+
+```text
+refused=True citations=0 error=None
+```
+
+### Gate 证据文件
+
+Day 10 Review 统一读取：
+
+```text
+docs/P1_GATE_EVIDENCE.md
+```
+
+Day 9 不执行：
+
+- 不给出 P1 PASS / CONDITIONAL PASS / FIX 结论。
+- 不更新 README 的阶段完成声明。
+- 不关闭 P1 Milestone。
+- 不合并 Draft PR。
+
+### 生命周期测试后健康检查返回 503
+
+先让失败断言输出 `/health/dependencies` 的响应体，确认具体失败依赖。若仅发生在异步集成测试之后，应检查全局 SQLAlchemy AsyncEngine 是否保留了绑定到旧事件循环的 asyncpg 连接。
+
+Day 9 的处理是在测试清理阶段执行：
+
+```python
+await engine.dispose()
+```
+
+该处理只重置测试后的连接池，不改变生产请求逻辑。
 
 ## 通用常见问题
 
