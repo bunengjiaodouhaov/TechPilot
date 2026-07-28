@@ -5,16 +5,21 @@ from app.answering.answer_service import (
     InvalidLLMCitationError,
 )
 from app.answering.context_builder import ContextBuilder
-from app.answering.dto import LLMAnswer, RetrievedContext
+from app.answering.dto import (
+    BuiltContext,
+    Citation,
+    LLMAnswer,
+    RetrievedContext,
+)
 from app.ingestion.chunker import StructureAwareChunker
 from app.ingestion.parsers.markdown import MarkdownParser
 from app.ingestion.parsers.pdf import PDFParser
-from app.ingestion.schemas import ParseInput
+from app.ingestion.schemas import ChunkData, ParseInput
 
 
 def _to_retrieved_context(
     *,
-    chunk: object,
+    chunk: ChunkData,
     source_type: str,
     document_name: str,
     chunk_db_id: int = 1,
@@ -36,7 +41,9 @@ def _to_retrieved_context(
     )
 
 
-def _build_citation(context: RetrievedContext):
+def _build_citation(
+    context: RetrievedContext,
+) -> tuple[BuiltContext, Citation]:
     built_context = ContextBuilder(max_characters=10_000).build(
         contexts=[context]
     )
