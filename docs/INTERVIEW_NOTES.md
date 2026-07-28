@@ -128,3 +128,23 @@ System Prompt 要求回答前检查：
 ### 如何验证删除和拒答链路？
 
 删除支持 TechPilot 项目事实的文档后，运行真实 `AnswerService` 评测。三条问题均返回 `refused=True`、`citations=0`，结果为 3/3 PASS。
+
+---
+
+## Day 8：引用可追溯性回归
+
+### 如何证明 Citation 不是模型编造的？
+
+测试必须覆盖完整数据链路，而不只是检查最终 JSON 字段：Parser 提取页码或标题路径，Chunker 保留结构，Context Builder 为实际进入 Prompt 的 Chunk 分配 `SOURCE_N`，AnswerService 再根据该映射构造 Citation。LLM 只返回内部来源标识，不能决定文档名、页码、章节或原文。
+
+### 为什么要测试 Markdown 标题路径和 PDF 页码的跨层传播？
+
+单元测试只能证明某一层能格式化字段，不能证明真实来源元数据在多层转换中没有丢失。跨层回归测试可以验证来源结构从解析阶段一直到用户看到的 Citation 都保持一致。
+
+### 为什么被 Context Budget 排除的来源必须无法引用？
+
+被排除的 Chunk 没有实际进入 LLM Prompt，不能成为回答证据。Context Builder 不会为其建立有效的来源映射；如果模型返回对应 `SOURCE_N`，AnswerService 必须将其视为未知来源并拒绝，而不是生成看似合法的 Citation。
+
+### Day 8 为什么没有修改生产代码？
+
+代码审计显示现有设计已经满足服务端引用映射、页码与章节传播、未知来源拒绝等边界。Day 8 的缺口是缺少跨层验收证据，因此最小且正确的改动是补回归测试，而不是为了体现开发量重写稳定逻辑。
