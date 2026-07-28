@@ -107,6 +107,23 @@ class AnswerEvaluationResult:
     error: str | None
 
 
+@dataclass(frozen=True)
+class AnswerEvaluationSummary:
+    """Deterministic refusal metrics derived from raw evaluation results."""
+
+    total_cases: int
+    runtime_errors: int
+    answerable_cases: int
+    evaluated_answerable_cases: int
+    over_refusals: int
+    over_refusal_rate: float | None
+    unanswerable_cases: int
+    evaluated_unanswerable_cases: int
+    correct_refusals: int
+    incorrect_answers: int
+    incorrect_answer_rate: float | None
+
+
 def load_cases(
     path: Path,
 ) -> list[AnswerEvaluationCase]:
@@ -151,6 +168,80 @@ def load_cases(
         )
 
     return cases
+
+
+def summarize_results(
+    results: list[AnswerEvaluationResult],
+) -> AnswerEvaluationSummary:
+    """Summarize refusal behavior without claiming answer correctness."""
+
+    runtime_errors = sum(
+        1
+        for result in results
+        if result.error is not None
+    )
+
+    answerable_results = [
+        result
+        for result in results
+        if result.case.answerable
+    ]
+    evaluated_answerable_results = [
+        result
+        for result in answerable_results
+        if result.error is None and result.refused is not None
+    ]
+    over_refusals = sum(
+        1
+        for result in evaluated_answerable_results
+        if result.refused is True
+    )
+
+    unanswerable_results = [
+        result
+        for result in results
+        if not result.case.answerable
+    ]
+    evaluated_unanswerable_results = [
+        result
+        for result in unanswerable_results
+        if result.error is None and result.refused is not None
+    ]
+    correct_refusals = sum(
+        1
+        for result in evaluated_unanswerable_results
+        if result.refused is True
+    )
+    incorrect_answers = sum(
+        1
+        for result in evaluated_unanswerable_results
+        if result.refused is False
+    )
+
+    evaluated_answerable_count = len(evaluated_answerable_results)
+    evaluated_unanswerable_count = len(evaluated_unanswerable_results)
+
+    return AnswerEvaluationSummary(
+        total_cases=len(results),
+        runtime_errors=runtime_errors,
+        answerable_cases=len(answerable_results),
+        evaluated_answerable_cases=evaluated_answerable_count,
+        over_refusals=over_refusals,
+        over_refusal_rate=(
+            over_refusals / evaluated_answerable_count
+            if evaluated_answerable_count
+            else None
+        ),
+        unanswerable_cases=len(unanswerable_results),
+        evaluated_unanswerable_cases=evaluated_unanswerable_count,
+        correct_refusals=correct_refusals,
+        incorrect_answers=incorrect_answers,
+        incorrect_answer_rate=(
+            incorrect_answers / evaluated_unanswerable_count
+            if evaluated_unanswerable_count
+            else None
+        ),
+    )
 
 
 def build_answer_service(
@@ -255,6 +346,15 @@ def write_results(
             file.write("\n")
 
 
+def format_rate(rate: float | None) -> str:
+    """Format a ratio for CLI output without inventing missing evidence."""
+
+    if rate is None:
+        return "n/a"
+
+    return f"{rate:.6f}"
+
+
 async def run_evaluation(
     *,
     dataset_path: Path,
@@ -306,18 +406,35 @@ async def run_evaluation(
         results=results,
     )
 
-    error_count = sum(
-        1
-        for result in results
-        if result.error is not None
-    )
+    summary = summarize_results(results)
 
     print()
     print("=" * 80)
     print("TRUSTED ANSWERING EVALUATION")
     print("dataset:", dataset_path)
-    print("cases:", len(results))
-    print("runtime_errors:", error_count)
+    print("cases:", summary.total_cases)
+    print("runtime_errors:", summary.runtime_errors)
+    print("answerable_cases:", summary.answerable_cases)
+    print(
+        "evaluated_answerable_cases:",
+        summary.evaluated_answerable_cases,
+    )
+    print("over_refusals:", summary.over_refusals)
+    print(
+        "over_refusal_rate:",
+        format_rate(summary.over_refusal_rate),
+    )
+    print("unanswerable_cases:", summary.unanswerable_cases)
+    print(
+        "evaluated_unanswerable_cases:",
+        summary.evaluated_unanswerable_cases,
+    )
+    print("correct_refusals:", summary.correct_refusals)
+    print("incorrect_answers:", summary.incorrect_answers)
+    print(
+        "incorrect_answer_rate:",
+        format_rate(summary.incorrect_answer_rate),
+    )
     print("results:", output_path)
 
 
