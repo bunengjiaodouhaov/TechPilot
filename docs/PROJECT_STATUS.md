@@ -6,7 +6,7 @@ v0.6-dev
 
 ## 当前阶段
 
-P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
+P1：文档 RAG — Day 9 Gate 证据已整理，等待 Day 10 Gate Review
 
 ## 阶段状态
 
@@ -17,6 +17,7 @@ P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
 - Day 6：已完成
 - Day 7：已完成
 - Day 8：已完成
+- Day 9：证据整理完成，Gate 结论待 Day 10 决定
 
 ## 已完成
 
@@ -104,6 +105,19 @@ P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
 - 验证 Context Budget 排除的来源不能被 LLM 伪造引用
 - 保持生产逻辑不变，仅补充跨层验收证据
 
+### Day 9：P1 集成验证与 Gate 证据
+
+- 新增完整文档 RAG 生命周期集成测试
+- 验证上传、持久化、向量索引、检索、回答、引用、删除和删除后拒答
+- Fake LLM 会检查真实 Prompt 中的 `SOURCE_1` 与上传证据，避免无条件返回掩盖链路故障
+- 扩展回答评测汇总：运行错误、过度拒答、正确拒答、错误回答与错误回答率
+- 新增回答评测汇总单元测试
+- 建立基于当前 5 份有效文档、1153 个 Chunk 的 10 条困难无答案样本
+- 完成真实 AnswerService 无答案评测：10/10 正确拒答，错误回答率 0%
+- 修复异步生命周期测试后 SQLAlchemy 连接池跨事件循环影响后续健康检查的问题
+- 新增 `docs/P1_GATE_EVIDENCE.md`
+- README、Milestone 和 P1 Gate 结论继续留待 Day 10
+
 ## Day 4–5 验收证据
 
 - `python -m py_compile scripts/retrieval_eval.py`：PASS
@@ -150,6 +164,23 @@ P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
 - `git diff --check`：PASS
 - 非阻塞警告：FastAPI TestClient 的 Starlette/httpx 弃用警告
 
+## Day 9 验收证据
+
+- P1 Lifecycle Integration：PASS
+- Prompt Source Marker / Uploaded Evidence Check：PASS
+- Upload -> Answer -> Citation -> Delete -> Refuse：PASS
+- Answer Evaluation Summary Unit Tests：3 passed
+- Unanswerable Dataset：10 条
+- Correct Refusals：10/10
+- Incorrect Answers：0/10
+- Incorrect-answer Rate：0.000000
+- Runtime Errors：0
+- Full Test Suite：126 passed
+- Dependency Health Repeated 3 Times：PASS
+- `git diff --check`：PASS
+- Gate Evidence：`docs/P1_GATE_EVIDENCE.md`
+- P1 Gate Decision：PENDING DAY 10
+
 ## 架构文档
 
 系统架构、数据流和关键设计边界统一维护在 `docs/ARCHITECTURE.md`。
@@ -167,7 +198,8 @@ P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
 - 当前 Context Builder 采用 Top-K 上下文组织方式，尚未加入 Reranker。
 - Qdrant 删除当前采用 Best-effort Cleanup，长期方案为 Outbox Pattern。
 - 部分早期知识库文档可能已经过时。
+- 当前 10 条回答评测均为无答案样本，因此只能证明无答案安全性，不能计算有答案样本的过度拒答率或定量回答质量。
 
 ## 下一步
 
-进入 Day 9：完成 P1 集成测试与 README 整理，准备 P1 Gate 材料。
+进入 Day 10：依据 `docs/P1_GATE_EVIDENCE.md` 进行 P1 Gate Review，给出 PASS / CONDITIONAL PASS / FIX 结论；结论确定后再更新 README、Milestone 和阶段声明。
