@@ -196,7 +196,6 @@ runtime errors:        0
 
 ## 项目文档
 
-- `docs/P1_GATE_EVIDENCE.md`
 - `docs/PROJECT_STATUS.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEV_LOG.md`
