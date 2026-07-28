@@ -22,7 +22,7 @@ from app.api.dependencies import (
     get_vector_repository,
 )
 from app.core.config import settings
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.document import Document
 from app.models.workspace import Workspace
@@ -205,3 +205,8 @@ async def test_p1_document_rag_lifecycle() -> None:
                 delete(Workspace).where(Workspace.id == workspace_id)
             )
             await session.commit()
+
+        # The global async engine may otherwise retain asyncpg connections
+        # bound to this pytest event loop. Later sync TestClient tests run the
+        # application in another loop and can receive a false 503 health result.
+        await engine.dispose()
