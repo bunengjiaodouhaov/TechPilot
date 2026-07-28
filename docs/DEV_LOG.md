@@ -260,7 +260,6 @@
 - 新增 `tests/scripts/test_answer_eval.py`，验证指标分母和 `n/a` 语义。
 - 基于当前有效知识库重新构建 10 条困难无答案样本。
 - 当前评测 Workspace 包含 5 份有效文档、1153 个 Chunk，其中盘古 PDF 为 1002 个 Chunk。
-- 新增 `docs/P1_GATE_EVIDENCE.md`，集中整理 Day 10 Review 所需证据。
 
 ### 关键设计
 
@@ -322,6 +321,5 @@
 
 - README 更新为 P1 当前真实能力、运行方式、指标和 `CONDITIONAL PASS` 状态
 - `PROJECT_STATUS.md` 更新 Day 10 结论与唯一条件
-- `P1_GATE_EVIDENCE.md` 固化 Gate 决策、边界与条件关闭清单
 - `INTERVIEW_NOTES.md`、`RUNBOOK.md` 同步判断口径和执行步骤
 - PR #2 保持 Draft、未合并
