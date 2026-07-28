@@ -366,13 +366,9 @@ PY
 refused=True citations=0 error=None
 ```
 
-### Gate 证据文件
+### Gate 状态来源
 
-Day 10 Review 统一读取：
-
-```text
-docs/P1_GATE_EVIDENCE.md
-```
+Day 10 Review 统一以 `docs/PROJECT_STATUS.md` 中的阶段状态、验收证据和未完成条件为准。实现过程与问题修复记录在 `docs/DEV_LOG.md`；执行命令只维护在本文件。
 
 Day 9 不执行：
 
@@ -481,7 +477,7 @@ retained_failure_cases
 
 条件关闭前：
 
-- `docs/P1_GATE_EVIDENCE.md` 保持 `CONDITIONAL PASS`
+- `docs/PROJECT_STATUS.md` 保持 `CONDITIONAL PASS`
 - P1 Milestone 保持未关闭
 - PR #2 保持未合并
 
