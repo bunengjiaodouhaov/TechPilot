@@ -116,7 +116,6 @@ P1：文档 RAG — Day 10 Gate Review 结论为 CONDITIONAL PASS
 - 建立基于当前 5 份有效文档、1153 个 Chunk 的 10 条困难无答案样本
 - 完成真实 AnswerService 无答案评测：10/10 正确拒答，错误回答率 0%
 - 修复异步生命周期测试后 SQLAlchemy 连接池跨事件循环影响后续健康检查的问题
-- 新增 `docs/P1_GATE_EVIDENCE.md`
 - README、Milestone 和 P1 Gate 结论继续留待 Day 10
 
 ### Day 10：P1 Gate Review
@@ -128,7 +127,7 @@ P1：文档 RAG — Day 10 Gate Review 结论为 CONDITIONAL PASS
 - 条件要求记录 answer correctness、citation support 和 over-refusal
 - OCR 明确属于摄取增强，不作为 P1 条件
 - Hybrid Retrieval 和 Reranker 明确属于 P2，不作为 P1 条件
-- README 与 Gate 相关文档已同步为 `CONDITIONAL PASS`
+- README 与现有项目文档已同步为 `CONDITIONAL PASS`
 - P1 Milestone 和 PR #2 保持未关闭、未合并，等待条件证据
 
 ## Day 4–5 验收证据
@@ -191,7 +190,6 @@ P1：文档 RAG — Day 10 Gate Review 结论为 CONDITIONAL PASS
 - Full Test Suite：126 passed
 - Dependency Health Repeated 3 Times：PASS
 - `git diff --check`：PASS
-- Gate Evidence：`docs/P1_GATE_EVIDENCE.md`
 - P1 Gate Decision：CONDITIONAL PASS
 
 ## P1 Gate 唯一未完成条件
