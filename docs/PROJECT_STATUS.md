@@ -6,7 +6,7 @@ v0.6-dev
 
 ## 当前阶段
 
-P1：文档 RAG — 可信问答与回答质量评测完成
+P1：文档 RAG — 可信问答、回答质量评测与引用回归完成
 
 ## 阶段状态
 
@@ -16,6 +16,7 @@ P1：文档 RAG — 可信问答与回答质量评测完成
 - Day 4–5：已完成
 - Day 6：已完成
 - Day 7：已完成
+- Day 8：已完成
 
 ## 已完成
 
@@ -95,6 +96,14 @@ P1：文档 RAG — 可信问答与回答质量评测完成
 - 强化 Evidence Sufficiency 与主体一致性规则
 - 完成删除后回答评测：3/3 PASS
 
+### Day 8：引用、页码与上下文回归
+
+- 新增 Citation Traceability 回归测试
+- 验证 Markdown 标题路径可传递至 Chunk、Prompt 与服务端 Citation
+- 验证 PDF 页码可传递至跨页 Chunk、Prompt 与服务端 Citation
+- 验证 Context Budget 排除的来源不能被 LLM 伪造引用
+- 保持生产逻辑不变，仅补充跨层验收证据
+
 ## Day 4–5 验收证据
 
 - `python -m py_compile scripts/retrieval_eval.py`：PASS
@@ -130,6 +139,17 @@ P1：文档 RAG — 可信问答与回答质量评测完成
 - 完整自动化测试：119 passed
 - 非阻塞警告：FastAPI TestClient 的 Starlette/httpx 弃用警告
 
+## Day 8 验收证据
+
+- Citation Traceability Tests：3 passed
+- Markdown Heading Path Propagation：PASS
+- PDF Page Range Propagation：PASS
+- Omitted Source Citation Rejection：PASS
+- Dependency Health：HTTP 200，PostgreSQL / Redis / Qdrant 全部正常
+- 完整自动化测试：122 passed
+- `git diff --check`：PASS
+- 非阻塞警告：FastAPI TestClient 的 Starlette/httpx 弃用警告
+
 ## 架构文档
 
 系统架构、数据流和关键设计边界统一维护在 `docs/ARCHITECTURE.md`。
@@ -150,4 +170,4 @@ P1：文档 RAG — 可信问答与回答质量评测完成
 
 ## 下一步
 
-进入总控手册中的下一阶段；开始前先确认对应 Milestone、目标和验收标准。
+进入 Day 9：完成 P1 集成测试与 README 整理，准备 P1 Gate 材料。
