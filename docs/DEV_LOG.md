@@ -398,3 +398,112 @@
 - 新 BM25 集成测试后 P1 lifecycle / health 出现 asyncpg event-loop `RuntimeError` / `InterfaceError`；在测试清理阶段 `await engine.dispose()`，只重置测试连接池，不修改生产逻辑。
 - 首版 tokenizer 先让 jieba 切分再保护技术 token，无法严格保证复杂标识符；改为先从原文识别 ASCII 技术 token，中文片段再交给 jieba。
 - 原 BM25 Recall@5 0.60 的 30-case 结果包含 6 条 stale Golden；确认旧文档已删除且知识不再存在后，用当前新文档的人工权威 Chunk 替换并重跑。旧跨 snapshot 指标全部废弃。
+
+---
+## Day 13：RRF Hybrid Retrieval
+
+### 完成
+
+- 新增 `app/retrieval/rrf.py`，实现纯 Reciprocal Rank Fusion。
+- 新增 `HybridSearchHit` 与 `HybridRetrievalService`。
+- Dense 与 BM25 保持独立，通过统一 `chunk_id` 在 Fusion 层聚合。
+- 明确 `candidate_limit` 与 final `limit` 的职责边界。
+- Hybrid 结果保留两路原始 rank / score 和 `rrf_score` 供诊断。
+- 增加 shared identity consistency check，避免同一 `chunk_id` 对应冲突实体。
+- 新增 RRF 与 Hybrid Service 自动化测试。
+- 新增 `scripts/hybrid_retrieval_eval.py`，同一次 Dense/BM25 candidate snapshot 同时计算 Dense/BM25/Hybrid 指标。
+- 评测前增加 strict Golden integrity check。
+- 完成真实 Hybrid Service smoke。
+- 新增 `docs/adr/ADR-001-agent-runtime.md`，冻结 Thin Agent / Thick Harness 和 v1/v2 边界；未实现 Agent Runtime。
+
+### 正式 Retrieval 结果
+
+配置：
+
+```text
+candidate_limit=20
+top_k=5
+rrf_k=60
+```
+
+结果：
+
+```text
+Dense   Recall@5=0.700000  MRR@5=0.500000  MISS=9
+BM25    Recall@5=0.700000  MRR@5=0.567778  MISS=9
+Hybrid  Recall@5=0.766667  MRR@5=0.588333  MISS=7
+```
+
+失败集合：
+
+```text
+Dense-only hit=4
+BM25-only hit=4
+Both hit=17
+Both miss=5
+Dense/BM25 oracle union=25/30
+Hybrid actual=23/30
+Fusion losses=2
+Both candidate miss=3
+```
+
+### 参数实验与结论
+
+只做有边界假设验证，没有大规模搜索：
+
+```text
+c20/k60 → Recall 0.766667, MRR 0.588333
+c10/k60 → Recall 0.766667, MRR 0.595556，但 both-candidate-miss 3→4
+c20/k20 → 与 c20/k60 Top-5 结果相同
+c20/k1  → Recall 0.766667, MRR 0.586111
+```
+
+结论：
+
+- 缩小 candidate depth 没有提高 Recall，反而降低候选覆盖。
+- `k=20` 与 `k=60` 在当前 Golden 上 Top-5 相同。
+- 极小 `k=1` 只把 fusion loss 从 case 11 转移到 case 09，总 Recall 不变且 MRR 更低。
+- 停止继续调参，避免对 30 条 Golden 过拟合。
+- 正式 baseline 保留 `candidate_limit=20 / rrf_k=60 / top_k=5`。
+
+### 关键失败分析
+
+- case 09：Dense rank 3 + BM25 rank 14。`k=60` 能利用跨路共识进入 Hybrid rank 5；`k=1` 过度强化单路头部后反而丢失。
+- case 11：Dense rank 2，BM25 Top-20 完全 miss。较大 `k` 下被多个双路中等排名候选压出；`k=1` 可恢复，但会产生其他损失。
+- case 15：BM25-only rank 5。双路合并后存在更多高优先候选，单路边界命中在 final Top-5 中天然脆弱。
+- case 25：Dense Top-20 miss、BM25 rank 17；属于候选召回/排序问题，不是单纯 RRF 可解决。
+
+### Golden Integrity 修复
+
+Day 13 发现一条 `retrieval_golden.jsonl` 的 `expected_document_id` metadata 错误。
+
+Day 12 的 HIT/MISS 脚本只按 `expected_chunk_id` 计算，所以修正后 Dense/BM25 指标完全复现；但这暴露了 Day 12 的 integrity check 对完整身份关系校验不足。
+
+Day 13 strict check 改为同时校验 workspace、legal Document、document id/name、chunk id/index 和 section。
+
+修复后：
+
+```text
+30/30 valid
+5 legal documents
+1153 legal chunks
+dataset_sha256=e65e8490ef8e23018673712b2e595c6779e842094bd49d5d433fc5641bcef7f5
+corpus_snapshot_sha256=1d393523789b235bcfc1f821491bf86c5bcd29f47e04da7ebb85362b9ad81b0e
+```
+
+### 验收
+
+- RRF tests：PASS
+- Hybrid Service tests：PASS
+- Hybrid real-service smoke：PASS
+- Full Test Suite：154 passed
+- `git diff --check`：PASS
+- Starlette/httpx deprecation warning：非阻塞
+- HF Hub unauthenticated warning：非阻塞
+
+### 设计边界
+
+- Day 13 没有把 Hybrid 接入 `AnswerService`；生产回答链路仍为 Dense-only。
+- Day 13 不实现 Reranker。
+- RRF 不能达到 Dense/BM25 oracle union 是预期风险，Fusion Top-K 本身可能产生 truncation loss。
+- Agent Harness 补充要求只做设计冻结，不抢 P2 主线；Day 13 没有实现 Tool Registry、Repo Explorer 或 Coding Agent。

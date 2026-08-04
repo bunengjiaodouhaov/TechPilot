@@ -256,3 +256,42 @@ Day 12 的目标是建立独立、可验证的 BM25 Retriever 和 baseline。直
 ### corpus 更新后，Retrieval Benchmark 应怎样防止假性性能下降？
 
 先做 Golden integrity check：每个 `expected_chunk_id` 必须仍属于当前 Workspace、未删除且可检索的 Document。若知识被替换，应人工重新标注新权威 Chunk；若知识已经从 corpus 移除，应替换问题。不能把 stale label 当作 Retriever 的 MISS，也不能让被评测 Retriever 自动选择自己的新标签。
+
+---
+## Day 13：RRF Hybrid Retrieval
+
+### 为什么不能直接把 Dense score 和 BM25 score 相加？
+
+两种 score 的尺度和含义不同。Dense similarity 由 Embedding 模型和向量距离定义；BM25 score 受查询词、文档长度和当前 corpus 统计影响。直接相加等价于隐式假设两种分数已经校准，而当前系统没有这个保证。
+
+### RRF 为什么使用 rank？
+
+RRF 只使用每个 Retriever 内部的相对排序，因此避免跨 Retriever 原始 score calibration。一个 Chunk 如果同时被多路召回，会累加多个 rank contribution。
+
+### `k` 的作用是什么？
+
+`k` 控制 rank 差异的敏感程度。较大 `k` 让不同 rank 的贡献更平，增强跨路共识；较小 `k` 更强调每一路头部结果。Day 13 实验显示不能简单靠调小 `k` 消除 fusion loss：`k=1` 只是把损失从一个 case 转移到另一个 case。
+
+### 为什么区分 `candidate_limit` 和最终 `limit`？
+
+`candidate_limit` 决定每一路有多少候选有资格进入 Fusion；最终 `limit` 决定用户得到多少 Hybrid 结果。如果每一路只取最终 Top-5，RRF 无法利用 rank 6–N 的补充候选。候选过浅会损失覆盖，过深则会引入更多低质量共识候选，因此必须实验记录。
+
+### 为什么 Hybrid Recall 没有达到 Dense/BM25 union 的 25/30？
+
+25/30 是一个 oracle success union：只表示“至少有一路在自己的 Top-5 命中”。RRF 还必须把两路候选重新排成一个 final Top-5，所以单路命中可能被其他跨路候选挤出。Day 13 的 Hybrid 实际是 23/30，并出现 2 个 fusion truncation loss。
+
+### 为什么正式 baseline 选择 `candidate_limit=20, k=60`？
+
+`candidate_limit=10` 没有提高 Recall，并让 both-candidate-miss 从 3 增至 4；`k=20` 与 `k=60` 结果相同；`k=1` Recall 不变且 MRR 更低。继续围绕 30 条 Golden 搜参容易过拟合，因此保留常见且稳定的 `k=60` 与更完整的 Top-20 candidate pool。
+
+### RRF 能解决什么，不能解决什么？
+
+它能利用 Dense 与 lexical Retrieval 的互补候选并重新排序。它不能恢复两路 candidate pool 中都不存在的 Chunk，也不能保证所有单路 Top-5 命中在融合后仍留在 final Top-5。
+
+### Day 12 Golden integrity 暴露了什么问题？
+
+仅验证 `chunk_id` 存在还不够。Golden 应验证 Chunk 是否仍属于正确 workspace、正确 active/legal Document，以及 document id/name、chunk index、section 是否一致。Day 13 修正一条错误 `expected_document_id` 后单路指标完全复现，说明 Day 12 指标没有被污染，但原 integrity acceptance 不够严格。
+
+### 为什么采用 Thin Agent / Thick Harness？
+
+Agent 控制层只负责有限规划、能力选择和终止；Tool Runtime、Context、Evidence/Verification、Trace/Evaluation 和权限边界作为可独立测试的 Harness 能力。这样 P3/P4 不需要把 Retriever 或 Verifier 重写成 LangGraph 节点，也避免 Day 13 提前变成 Coding Agent 项目。

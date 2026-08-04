@@ -10,7 +10,8 @@
 - Citation 只能绑定真实进入 Context 的 Chunk。
 - 无充分证据时返回 Refused。
 - 所有检索必须先限定合法候选集：当前 `workspace_id`、未软删除文档；BM25 还只接受 COMPLETED/PARTIAL Document。
-- Dense 与 BM25 必须共享同一 Chunk 身份空间，便于后续 dedupe / fusion /正文回查。
+- Dense、BM25 与 Hybrid 共享同一 Chunk 身份空间。
+- Hybrid 只融合 Retriever 已经召回的候选，不能恢复 Dense/BM25 都没有召回的 Chunk。
 
 ## 2. 文档摄取链路
 
@@ -99,17 +100,55 @@ Tokenizer：
 
 当前 BM25 baseline 只对 `chunk.text` 评分，避免把 Day 11 诊断脚本中的 metadata-enriched lexical design 偷渡为生产基线。
 
-### 3.3 当前生产边界
+### 3.3 RRF Hybrid Retrieval
+
+```text
+                    ┌─ DenseRetrievalService ── Top candidate_limit
+User Query ─────────┤
+                    └─ BM25RetrievalService ─── Top candidate_limit
+                                   ↓
+                          reciprocal_rank_fusion
+                                   ↓
+                              Hybrid Top limit
+```
+
+RRF：
+
+```text
+RRF(d) = Σ 1 / (k + rank_i(d))
+```
+
+关键边界：
+
+- 不直接相加 Dense 与 BM25 原始 score；两者 score scale 和语义不同。
+- RRF 只依赖各 Retriever 内部 rank。
+- 跨 Retriever 使用稳定 `chunk_id` 去重和聚合。
+- 同一路重复 Chunk 不允许重复贡献。
+- `candidate_limit` 是每一路进入 fusion 的候选深度。
+- `limit` 是 Fusion 后最终返回的 Top-K。
+- `HybridSearchHit` 保留 `dense_rank`、`bm25_rank`、两路原始 score 和 `rrf_score`，原始 score 只用于诊断，不参与 RRF。
+- 同一个 `chunk_id` 若 Dense/BM25 返回的物理/业务身份不一致，Hybrid 直接报 integrity error。
+
+当前正式 baseline：
+
+```text
+candidate_limit = 20
+rrf_k = 60
+final top_k = 5
+```
+
+### 3.4 当前生产边界
 
 ```text
 AnswerService
   ↓
-DenseRetrievalService   ← 当前生产路径
+DenseRetrievalService        ← 当前生产路径
 
-BM25RetrievalService    ← 独立实现 / 评测路径，尚未接 AnswerService
+BM25RetrievalService         ← 独立实现 / evaluation path
+HybridRetrievalService       ← 独立实现 / evaluation path
 ```
 
-Day 13 才引入 RRF Hybrid；Day 12 不做融合。
+Day 13 没有为了 Hybrid 重构 `AnswerService`。Reranker 完成并形成 P2 证据前，不提前改变生产回答链路。
 
 ## 4. 可信问答链路
 
@@ -161,30 +200,38 @@ Best-effort Qdrant Cleanup
 ### Retrieval
 
 ```text
-Current Corpus Snapshot
-  +
+Current Legal Corpus Snapshot
+        +
 30-case Golden Dataset
-  ↓
-Golden integrity check
-  ↓
-Dense retrieval_eval.py
-BM25 bm25_retrieval_eval.py
-  ↓
-Recall@5 / MRR@5 / Failure JSONL
-  ↓
-Failure-set comparison
+        ↓
+Strict Golden integrity check
+        ↓
+Dense Top-N + BM25 Top-N
+        ↓
+Single shared candidate snapshot
+        ├── Dense Top-5 metrics
+        ├── BM25 Top-5 metrics
+        └── RRF Fusion → Hybrid Top-5 metrics
+        ↓
+Recall@5 / MRR@5 / Failure-set comparison
 ```
 
-Day 12 当前正式结果：
+正式 Day 13 结果：
 
 - Dense：Recall@5 0.700000 / MRR@5 0.500000 / MISS 9
 - BM25：Recall@5 0.700000 / MRR@5 0.567778 / MISS 9
+- Hybrid：Recall@5 0.766667 / MRR@5 0.588333 / MISS 7
 - Dense-only hit：4
 - BM25-only hit：4
+- Both hit：17
 - Both miss：5
-- Top-5 hit union：25/30
+- Dense/BM25 Top-5 hit union：25/30
+- Hybrid actual hit：23/30
+- Fusion loss：2
 
-Golden 必须绑定当前 corpus snapshot。文档删除、替换或重新切块后，如果目标 `chunk_id` 不再属于合法活跃语料，该样本必须重新人工标注或替换，不能把 stale label 当 Retriever MISS。
+Golden integrity 不只校验 `expected_chunk_id` 是否存在，还必须校验其与当前 workspace、active/legal Document、`expected_document_id`、名称、chunk index 和 section 的一致性。
+
+评测运行记录必须绑定 dataset hash、corpus snapshot hash、git SHA 和检索配置。开发阶段若工作树尚未 commit，git SHA 只代表当前基线 commit，不能误写成包含未提交实验代码的实现 SHA。
 
 ### Answer
 
@@ -200,12 +247,40 @@ Answer correctness / Citation support / Refused / Runtime errors
 
 Day 11 answerable 生产评测：4/7 answer correct、4/7 citation supported、1/7 over-refusal，因此 P1 Gate = FIX。
 
-## 7. 当前未实现能力
+## 7. Agent / Harness 边界
 
-- RRF Hybrid Retrieval
+详细决策见 `docs/adr/ADR-001-agent-runtime.md`。
+
+冻结原则：
+
+```text
+Thin Agent Control Layer
+        ↓
+Thick Harness
+  ├── Tool Runtime
+  ├── Context
+  ├── Evidence / Verification
+  ├── Trace / Evaluation
+  └── Permission Boundary
+```
+
+Day 13–17 仍以 P2 为最高优先级，只允许 Harness 设计冻结，不实现 Agent Runtime。
+
+v1 只读：
+
+```text
+Research / Understand / Analyze / Plan
+```
+
+`edit_file`、shell、worktree、自动代码修改等 Action 能力属于 v2 backlog。
+
+## 8. 当前未实现能力
+
 - Reranker
+- Evidence Verifier
 - 持久化 / 缓存化 BM25 lexical index
 - OCR
 - Outbox Pattern
 - 流式上传和文件大小限制
 - Code RAG
+- Tool Registry / Agent Runtime

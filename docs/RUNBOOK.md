@@ -573,3 +573,105 @@ python -m pip install -r requirements.txt
 ### 终端出现 `heredoc>`
 
 Shell 正在等待多行输入结束标记。按 `Ctrl+C` 取消。
+
+## Day 13：RRF Hybrid Retrieval
+
+### Focused tests
+
+```bash
+pytest -q \
+  tests/retrieval/test_rrf.py \
+  tests/retrieval/test_hybrid_retrieval_service.py
+```
+
+### 正式 Hybrid Retrieval Evaluation
+
+从项目根目录执行：
+
+```bash
+python -m scripts.hybrid_retrieval_eval \
+  --candidate-limit 20 \
+  --top-k 5 \
+  --rrf-k 60
+```
+
+正式结果：
+
+```text
+Dense   Recall@5=0.700000  MRR@5=0.500000  MISS=9
+BM25    Recall@5=0.700000  MRR@5=0.567778  MISS=9
+Hybrid  Recall@5=0.766667  MRR@5=0.588333  MISS=7
+```
+
+正式配置：
+
+```text
+candidate_limit=20
+top_k=5
+rrf_k=60
+```
+
+### Golden integrity
+
+`hybrid_retrieval_eval.py` 会先验证 Golden 目标是否仍属于当前 legal corpus。
+
+当前正式快照：
+
+```text
+cases=30
+valid=30
+legal_documents=5
+legal_chunks=1153
+dataset_sha256=e65e8490ef8e23018673712b2e595c6779e842094bd49d5d433fc5641bcef7f5
+corpus_snapshot_sha256=1d393523789b235bcfc1f821491bf86c5bcd29f47e04da7ebb85362b9ad81b0e
+```
+
+如果 integrity FAIL：
+
+- 停止评测。
+- 不调 Retriever。
+- 不允许用 Retriever Top-1 自动重新标注 Golden。
+- 先确认 Document / Chunk 是否仍属于当前 corpus，再人工修正标签或替换问题。
+
+### 有边界实验
+
+Day 13 已验证：
+
+```bash
+python -m scripts.hybrid_retrieval_eval \
+  --candidate-limit 10 \
+  --top-k 5 \
+  --rrf-k 60 \
+  --output eval/hybrid_retrieval_results_candidate10.jsonl
+
+python -m scripts.hybrid_retrieval_eval \
+  --candidate-limit 20 \
+  --top-k 5 \
+  --rrf-k 20 \
+  --output eval/hybrid_retrieval_results_k20.jsonl
+
+python -m scripts.hybrid_retrieval_eval \
+  --candidate-limit 20 \
+  --top-k 5 \
+  --rrf-k 1 \
+  --output eval/hybrid_retrieval_results_k1.jsonl
+```
+
+这些实验只用于解释 candidate depth 和 `k` 的行为，不应继续扩大成 Golden 参数网格搜索。
+
+### 最终回归
+
+```bash
+pytest -q
+git diff --check
+git status --short
+```
+
+Day 13 已验证：
+
+```text
+154 passed
+git diff --check: PASS
+```
+
+真实 Hybrid Service smoke 也已通过；生产 `AnswerService` 仍保持 Dense-only。
