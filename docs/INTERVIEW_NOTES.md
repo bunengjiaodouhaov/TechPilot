@@ -208,3 +208,51 @@ P1 的目标是建立可测量的 Dense Retrieval Baseline 和可信回答闭环
 ### over-refusal 说明什么？
 
 over-refusal 衡量系统面对有充分证据的问题却选择拒答的比例。只优化无答案拒答可能让系统过度保守，因此最终 P1 质量证据需要同时观察幻觉风险和可用性损失。
+
+## Day 11：为什么 P1 最终是 FIX？
+
+### 为什么继续修改 Prompt 不能修复 Day 11 的三个主要失败？
+
+三个失败样本的权威 Chunk 在 Dense 中分别排到 56、1120 和 26，均未进入生产 Top-5。生成模型看不到缺失证据时，Prompt 最多约束它“不要乱答”，不能凭空补回权威事实。因此根因优先归为 Retrieval recall，而不是生成 Prompt。
+
+### 为什么 answer correctness 和 Citation support 要分开统计？
+
+模型可能依赖参数知识碰巧答对，但引用并不支持答案；也可能引用正确但回答遗漏关键条件。可信 RAG 要求“答案正确”和“证据直接支持”同时成立，因此必须分别评估。
+
+### 为什么诊断性的 BM25/RRF 实验不能直接算 P2 已实现？
+
+诊断脚本可以验证方向，但通常没有稳定接口、配置、隔离约束、测试和生产生命周期。项目验收需要正式模块和可复现评测，不能用一次性实验替代生产能力。
+
+## Day 12：BM25 与 Retrieval Evaluation
+
+### Dense 和 BM25 各自依赖什么信号？
+
+Dense 把 Query 和 Chunk 映射到 embedding 空间，主要利用语义相似度；BM25 基于分词后的词项频率、逆文档频率和文档长度归一化，主要利用 lexical overlap。技术专名、API 名、错误码和代码标识符常给 BM25 很强的精确匹配信号，而跨语言或改写问题通常更依赖 Dense。
+
+### 为什么 BM25 和 Dense 必须使用同一个 Chunk identity？
+
+Fusion 需要判断两路结果是否是同一个知识单元并去重，同时最终还要回查同一份权威正文。统一 identity 解决的是实体对齐，不是要求两种算法的 score 或 rank 相同。
+
+### 为什么 BM25 filter 必须在候选集合阶段生效？
+
+如果先对全库计算 Top-K，再删除其他 Workspace、软删除或 FAILED 文档，合法候选可能已经被非法结果挤出 Top-K，既会污染指标，也可能造成租户隔离风险。正确做法是先定义合法 corpus，再评分排序。
+
+### 为什么 BM25 要排除 FAILED Document，而不仅是 deleted Document？
+
+TechPilot 的 Ingestion 会先提交 Document/Chunk，再执行向量索引；如果索引失败，Chunk 可能已经存在而 Document 最终为 FAILED。Dense 正常生产语料不会把这种失败文档视为有效知识，因此 BM25 也必须只接受 COMPLETED/PARTIAL，保持语料语义一致。
+
+### 为什么 Day 12 没把 BM25 直接接到 AnswerService？
+
+Day 12 的目标是建立独立、可验证的 BM25 Retriever 和 baseline。直接替换或并联 AnswerService 会提前引入 Hybrid 的公共 hit interface、fusion 和排序职责，跨入 Day 13。先冻结单路 retriever 边界可以让后续融合做清晰的 ablation。
+
+### Day 12 的 Dense/BM25 结果说明了什么？
+
+在修复后的同一 30-case Golden 上，两者 Recall@5 都是 0.70，但 Dense-only hit 有 4 条、BM25-only hit 也有 4 条，共同 MISS 5 条。说明单路总体指标相同但错误分布明显不同；两路命中并集达到 25/30，为 Hybrid 提供了实证动机。
+
+### 为什么不能继续使用旧的 Dense 0.866667 和 BM25 0.60 做对比？
+
+评测发现 30 条 Golden 中有 6 条仍指向已删除旧文档的 Chunk，这些标签在当前 corpus 中不可能命中。旧 Dense 与新 BM25 还来自不同 corpus snapshot，横向比较无效。修复 Golden 为 30/30 valid 后必须同时重跑两种 Retriever。
+
+### corpus 更新后，Retrieval Benchmark 应怎样防止假性性能下降？
+
+先做 Golden integrity check：每个 `expected_chunk_id` 必须仍属于当前 Workspace、未删除且可检索的 Document。若知识被替换，应人工重新标注新权威 Chunk；若知识已经从 corpus 移除，应替换问题。不能把 stale label 当作 Retriever 的 MISS，也不能让被评测 Retriever 自动选择自己的新标签。

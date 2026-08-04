@@ -483,6 +483,81 @@ retained_failure_cases
 
 完成数据集、运行结果和失败审查后，再决定是否更新为最终 `PASS`。
 
+## Day 12：BM25 Retrieval 与 Retrieval Golden Integrity
+
+### 运行 BM25 focused tests
+
+```bash
+pytest -q \
+  tests/retrieval/test_bm25_tokenizer.py \
+  tests/retrieval/test_bm25_retrieval_service.py \
+  tests/integration/test_bm25_repository.py
+```
+
+### 运行 Dense / BM25 正式评测
+
+统一从项目根目录使用 module 方式运行，避免 `scripts/` 入口导致 `app` import path 丢失：
+
+```bash
+python -m scripts.retrieval_eval --top-k 5
+python -m scripts.bm25_retrieval_eval --top-k 5
+```
+
+当前 Day 12 正式 baseline：
+
+```text
+Dense  Recall@5=0.700000  MRR@5=0.500000  MISS=9
+BM25   Recall@5=0.700000  MRR@5=0.567778  MISS=9
+```
+
+### Retrieval Benchmark 前置条件：Golden integrity
+
+文档被删除、替换或重新切块后，不得直接复用旧指标。评测前至少确认：
+
+```text
+30 cases
+30 valid expected_chunk_id
+0 stale labels
+```
+
+合法目标 Chunk 必须满足：
+
+```text
+workspace_id == case.workspace_id
+deleted_at IS NULL
+Document.status IN (COMPLETED, PARTIAL)
+```
+
+若 stale：
+
+1. 先确认知识是否仍存在于当前 corpus。
+2. 若存在，人工选择新的权威 Chunk 并更新标签。
+3. 若知识已移除，替换该 Golden 问题。
+4. 不允许 Dense/BM25 自动用自己的 Top-1 给自己重新标注。
+5. 修复后同时重跑所有要比较的 Retriever。
+
+### BM25 集成测试后出现 asyncpg event-loop 错误
+
+症状：后续生命周期或依赖健康测试出现 `RuntimeError` / `InterfaceError`，单独测试可能正常。
+
+若新增异步集成测试使用全局 AsyncEngine，在测试清理阶段执行：
+
+```python
+await engine.dispose()
+```
+
+该操作只清理测试连接池，避免连接跨 pytest event loop 复用，不改变生产数据库逻辑。
+
+### 完整回归
+
+```bash
+pytest -q
+git diff --check
+git status
+```
+
+Day 12 已验证 Full Test Suite：PASS。Starlette/httpx TestClient deprecation warning 为非阻塞警告。
+
 ## 通用常见问题
 
 ### `No module named fastapi`

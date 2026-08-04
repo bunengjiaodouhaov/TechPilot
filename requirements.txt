@@ -14,3 +14,4 @@ pypdf
 python-multipart
 pytest-asyncio==1.4.0
 sentence-transformers
+jieba>=0.42,<1.0

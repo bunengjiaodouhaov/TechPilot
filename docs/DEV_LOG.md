@@ -323,3 +323,78 @@
 - `PROJECT_STATUS.md` 更新 Day 10 结论与唯一条件
 - `INTERVIEW_NOTES.md`、`RUNBOOK.md` 同步判断口径和执行步骤
 - PR #2 保持 Draft、未合并
+
+## Day 11：P1 Answerable 质量复验与 FIX 判定
+
+### 完成
+
+- 建立 7 条 `answerable=true` 正常样本并明确 reference answer / acceptance criteria。
+- 使用真实 `AnswerService`、DeepSeek 和生产 Dense Top-5 运行统一复验。
+- 人工审查 answer correctness、Citation support、over-refusal 与运行错误。
+- 在生产 `SYSTEM_PROMPT` 增加输出隔离：`SOURCE_N` 只能作为内部 Citation ID，不得进入用户可见正文。
+- 将 BM25 / RRF / Reranker / hierarchical retrieval 预实验归档到 `.local/day11/diagnostics/`，不作为 P1 生产证据。
+- P1 Gate 从 `CONDITIONAL PASS` 更新为 `FIX`。
+
+### 关键设计
+
+- Answer correctness 与 Citation support 必须分开判断；模型碰巧答对但证据不支持仍然失败。
+- 生成 Prompt 只能约束模型如何使用已有证据，不能补回 Retriever 没召回的权威 Chunk。
+- P1 失败样本首先定位 Retrieval rank，再判断生成层；不能看到错误答案就只调 Prompt。
+- 诊断实验与生产实现必须隔离，避免用一次性脚本冒充正式 P2 能力。
+
+### 验收
+
+- Answerable samples：7
+- Answer correctness：4/7
+- Citation support：4/7
+- Over-refusal：1/7
+- Runtime errors：0
+- `SOURCE_N` user-visible leak：0
+- 失败目标 Dense rank：56 / 1120 / 26
+- P1 Gate：FIX
+
+### 错误与修复
+
+- 最初 P1 `CONDITIONAL PASS` 只缺 answerable 质量证据；补证据后发现实际质量未达到 PASS，而不是“条件自动关闭”。
+- 失败样本的权威 Chunk 未进入 Top-5，继续修改 Prompt 无法修复；后续转入 P2 检索优化。
+
+## Day 12：BM25 实现、评测与 Dense/BM25 互补分析
+
+### 完成
+
+- 实现 `bm25_tokenizer.py`、BM25 DTO、PostgreSQL Chunk Repository 和 `BM25RetrievalService`。
+- BM25 参数配置化：`k1=1.5`、`b=0.75`。
+- Tokenizer 支持中英混合技术语料，完整保留 `workspace_id`、`Recall@5`、`multilingual-e5-base`、`SHA-256`、数字等 token。
+- BM25 Repository 强制 Workspace 隔离、软删除过滤，并排除 PENDING/FAILED Document，只检索 COMPLETED/PARTIAL。
+- 正式 BM25 scoring 只使用 `chunk.text`，与 Dense 的正文检索单元对齐。
+- 新增 BM25 focused tests、数据库过滤集成测试和正式评测脚本。
+- Full Test Suite：PASS。
+- 对当前 30 条 Golden 做 integrity audit，发现并修复 6 条 stale label。
+- 在 30/30 valid 的同一 Golden / corpus 上重跑 Dense 与 BM25。
+
+### 关键设计
+
+- Dense 依赖语义 embedding；BM25 依赖 lexical overlap。两者不是替代关系，融合价值要看失败集合是否互补。
+- 统一 Chunk identity 的作用是实体对齐，不是“统一排名”：后续 fusion / dedupe /正文回查必须知道两路结果是否指向同一知识单元。
+- Workspace / deleted / status filter 必须约束候选集合，不能先对全库 Top-K 再事后过滤，否则会产生截断偏差和隔离风险。
+- Ingestion 可能在 Chunk 已提交后因为向量索引失败把 Document 标为 FAILED，因此 BM25 不能只看 `deleted_at`，还必须排除 FAILED。
+- Day 12 不把 BM25 接入 `AnswerService`；生产回答仍使用 Dense，避免提前引入 Day 13 Hybrid 接口重构。
+- Retrieval benchmark 必须绑定 corpus snapshot。stale Golden 是评测数据错误，不是 Retriever MISS。
+
+### 验收
+
+- Golden integrity：30/30 valid
+- Dense：Recall@5 0.700000 / MRR@5 0.500000 / MISS 9
+- BM25：Recall@5 0.700000 / MRR@5 0.567778 / MISS 9
+- BM25-only hit：4
+- Dense-only hit：4
+- Both miss：5
+- Hit union：25/30（理论覆盖上界 0.833333）
+- Focused / integration / full regression：PASS
+
+### 错误与修复
+
+- 首版 BM25 eval 直接执行 `python scripts/...` 导致 `ModuleNotFoundError: app`；统一从项目根目录使用 `python -m scripts.bm25_retrieval_eval`。
+- 新 BM25 集成测试后 P1 lifecycle / health 出现 asyncpg event-loop `RuntimeError` / `InterfaceError`；在测试清理阶段 `await engine.dispose()`，只重置测试连接池，不修改生产逻辑。
+- 首版 tokenizer 先让 jieba 切分再保护技术 token，无法严格保证复杂标识符；改为先从原文识别 ASCII 技术 token，中文片段再交给 jieba。
+- 原 BM25 Recall@5 0.60 的 30-case 结果包含 6 条 stale Golden；确认旧文档已删除且知识不再存在后，用当前新文档的人工权威 Chunk 替换并重跑。旧跨 snapshot 指标全部废弃。

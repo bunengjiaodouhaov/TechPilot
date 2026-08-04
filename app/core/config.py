@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60.0
     answer_context_max_characters: int = 12_000
 
+    bm25_k1: float = 1.5
+    bm25_b: float = 0.75
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
