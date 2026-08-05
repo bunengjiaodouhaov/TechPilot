@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-04
 - Scope: TechPilot v1 architecture boundary
-- Implementation status: Design freeze only; no Agent Runtime implementation in Day 13
+- Implementation status: Design freeze extended through Day 14; no Agent Runtime implementation
 
 ## Context
 
@@ -82,7 +82,46 @@ Permission Boundary
 
 未来统一负责结构化输入输出、工具发现与调用、超时、有限重试、结构化错误、风险等级和 Trace metadata。
 
-Day 13 不实现 Tool Registry，也不冻结完整 ToolContract 字段；字段留到 Day 14。
+Day 14 仅冻结 ToolContract / ToolResult 的最小字段契约，不实现 Tool Registry，也不重构现有 Retriever。
+
+```text
+ToolContract
+├── name
+├── description
+├── input_schema
+├── output_schema
+├── risk_level        # read / compute / write / destructive
+├── timeout_seconds
+├── max_retries
+└── execute()
+
+ToolResult
+├── ok
+├── data
+├── error_code
+├── latency_ms
+├── truncated
+└── trace_metadata
+```
+
+字段语义冻结如下：
+
+- `name`：稳定工具标识。
+- `description`：供控制层理解工具能力边界。
+- `input_schema`：结构化输入契约。
+- `output_schema`：成功结果的数据契约。
+- `risk_level`：权限风险等级，限定为 `read / compute / write / destructive`。
+- `timeout_seconds`：单次执行超时边界。
+- `max_retries`：Harness 允许的有限重试次数。
+- `execute()`：工具执行入口；业务实现仍独立于 Agent 控制层。
+- `ok`：ToolResult 是否成功。
+- `data`：成功结果数据。
+- `error_code`：结构化失败类别，不以自由文本异常作为唯一错误协议。
+- `latency_ms`：本次工具执行耗时。
+- `truncated`：结果是否因 Context / 输出限制被截断。
+- `trace_metadata`：供 Harness Trace 关联调用上下文的扩展元数据。
+
+本次只冻结字段和职责，不冻结 Registry、发现协议、序列化框架或 Agent Runtime 实现。
 
 #### Context
 
@@ -232,7 +271,8 @@ Agent 实现围绕 Thin Agent + 成熟 Harness，而不是增加职责重叠的 
 ## Follow-up
 
 Day 14：
-- 冻结 ToolContract / ToolResult 字段
+- ToolContract / ToolResult 最小字段已冻结
+- 不实现 Tool Registry
 - 不重构现有 Retriever
 
 Day 15：

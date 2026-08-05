@@ -75,10 +75,9 @@ class HybridRetrievalService:
                 "limit must be greater than zero"
             )
 
-        if candidate_limit < limit:
+        if limit > candidate_limit * 2:
             raise ValueError(
-                "candidate_limit must be greater than "
-                "or equal to limit"
+                "limit must not exceed twice candidate_limit"
             )
 
         dense_hits = await self._dense_retrieval_service.search(

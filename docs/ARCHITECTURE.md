@@ -125,7 +125,8 @@ RRF(d) = Σ 1 / (k + rank_i(d))
 - 跨 Retriever 使用稳定 `chunk_id` 去重和聚合。
 - 同一路重复 Chunk 不允许重复贡献。
 - `candidate_limit` 是每一路进入 fusion 的候选深度。
-- `limit` 是 Fusion 后最终返回的 Top-K。
+- Dense/BM25 各自 Top-N 的 union 最多可包含 `2 * candidate_limit` 个不同 Chunk。
+- `limit` 是 Fusion 后返回深度，因此可大于单路 `candidate_limit`，但不得超过理论 union 上限。
 - `HybridSearchHit` 保留 `dense_rank`、`bm25_rank`、两路原始 score 和 `rrf_score`，原始 score 只用于诊断，不参与 RRF。
 - 同一个 `chunk_id` 若 Dense/BM25 返回的物理/业务身份不一致，Hybrid 直接报 integrity error。
 
@@ -137,7 +138,48 @@ rrf_k = 60
 final top_k = 5
 ```
 
-### 3.4 当前生产边界
+### 3.4 Cross Encoder Reranker
+
+```text
+Dense Top candidate_limit ─┐
+                           ├─ RRF → Hybrid Top rerank_depth
+BM25 Top candidate_limit ──┘
+                                      ↓
+                         PostgreSQL authoritative text
+                                      ↓
+                              RerankerProvider
+                                      ↓
+                           Cross Encoder relevance score
+                                      ↓
+                              Final Top limit
+```
+
+当前实现：
+- Provider contract：`query + documents -> list[float]`
+- OSS adapter：Sentence Transformers `CrossEncoder`
+- 正式模型：`BAAI/bge-reranker-v2-m3`
+- Candidate 身份、Hybrid 原始 rank/score、稳定排序和 final Top-K 由 TechPilot 控制
+- `RerankCandidate` 携带 PostgreSQL 权威正文；最终 `RerankedSearchHit` 不复制完整正文
+- `RerankedSearchHit` 保留原 `HybridSearchHit`，因此 Dense/BM25/RRF diagnostics 不丢失
+- 同分时保留原 Hybrid 顺序，保证 deterministic
+- PostgreSQL Chunk 缺失或身份冲突时直接报 integrity error，不静默丢弃
+
+深度边界：
+
+```text
+candidate_limit = 每一路 Retriever 的深度
+rerank_depth    = RRF union 中真正送入 Cross Encoder 的深度
+final limit     = Reranker 最终返回深度
+
+final limit <= rerank_depth <= 2 * candidate_limit
+```
+
+Day 14 正式配置：`candidate_limit=20 / rerank_depth=20 / final limit=5 / rrf_k=60`。
+
+Reranker 只能重新排序已经进入候选池的 Chunk，不能恢复 Dense/BM25 都未召回的目标。
+
+
+### 3.5 当前生产边界
 
 ```text
 AnswerService
@@ -146,9 +188,10 @@ DenseRetrievalService        ← 当前生产路径
 
 BM25RetrievalService         ← 独立实现 / evaluation path
 HybridRetrievalService       ← 独立实现 / evaluation path
+RerankingService             ← 独立实现 / evaluation path
 ```
 
-Day 13 没有为了 Hybrid 重构 `AnswerService`。Reranker 完成并形成 P2 证据前，不提前改变生产回答链路。
+Day 14 已完成 Reranker 实现和质量/延迟证据，但约 2.33s mean 的增量延迟使其暂不适合作为无条件生产默认路径，因此 `AnswerService` 继续保持 Dense-only。
 
 ## 4. 可信问答链路
 
@@ -211,9 +254,10 @@ Dense Top-N + BM25 Top-N
 Single shared candidate snapshot
         ├── Dense Top-5 metrics
         ├── BM25 Top-5 metrics
-        └── RRF Fusion → Hybrid Top-5 metrics
+        ├── RRF Fusion → Hybrid Top-5 metrics
+        └── Hybrid rerank pool → Cross Encoder → Reranked Top-5 metrics
         ↓
-Recall@5 / MRR@5 / Failure-set comparison
+Recall@5 / MRR@5 / Candidate miss / Rescue / Regression / Latency comparison
 ```
 
 正式 Day 13 结果：
@@ -228,6 +272,14 @@ Recall@5 / MRR@5 / Failure-set comparison
 - Dense/BM25 Top-5 hit union：25/30
 - Hybrid actual hit：23/30
 - Fusion loss：2
+
+Day 14 正式 Reranker 结果：
+
+- Hybrid+Reranker：Recall@5 0.866667 / MRR@5 0.766667 / MISS 4
+- Rescues：3；Regressions：0；Retained Hybrid hits：23/23
+- Rerank inference mean 2323.19 ms / P95 2956.97 ms
+- Reranked total mean 3009.45 ms / P95 3699.76 ms
+- `rerank_depth=40` 不增加 Recall/MRR，却把 inference mean 提高到 3893.50 ms，因此拒绝采用
 
 Golden integrity 不只校验 `expected_chunk_id` 是否存在，还必须校验其与当前 workspace、active/legal Document、`expected_document_id`、名称、chunk index 和 section 的一致性。
 
@@ -276,7 +328,6 @@ Research / Understand / Analyze / Plan
 
 ## 8. 当前未实现能力
 
-- Reranker
 - Evidence Verifier
 - 持久化 / 缓存化 BM25 lexical index
 - OCR

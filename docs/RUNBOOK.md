@@ -558,6 +558,66 @@ git status
 
 Day 12 已验证 Full Test Suite：PASS。Starlette/httpx TestClient deprecation warning 为非阻塞警告。
 
+## Day 14：Cross Encoder Reranker
+
+### focused tests
+
+```bash
+pytest -q \
+  tests/retrieval/test_hybrid_retrieval_service.py \
+  tests/retrieval/test_reranker_contract.py \
+  tests/retrieval/test_cross_encoder_reranker.py \
+  tests/retrieval/test_reranking_service.py
+```
+
+### 真实 smoke
+
+```bash
+HF_HUB_OFFLINE=1 python -m scripts.reranker_smoke
+```
+
+### 30-case 正式评测
+
+```bash
+HF_HUB_OFFLINE=1 python -m scripts.reranker_retrieval_eval \
+  --candidate-limit 20 \
+  --rerank-depth 20 \
+  --top-k 5 \
+  --rrf-k 60
+```
+
+正式结果：
+
+```text
+Dense              Recall@5=0.700000 MRR@5=0.500000 MISS=9
+BM25               Recall@5=0.700000 MRR@5=0.567778 MISS=9
+Hybrid             Recall@5=0.766667 MRR@5=0.588333 MISS=7
+Hybrid+Reranker    Recall@5=0.866667 MRR@5=0.766667 MISS=4
+```
+
+结果文件保存在 `.local/day14/`。
+
+正式 Golden integrity：
+
+```text
+30/30 valid
+legal_documents = 5
+legal_chunks = 1153
+dataset_sha256 = e65e8490ef8e23018673712b2e595c6779e842094bd49d5d433fc5641bcef7f5
+corpus_snapshot_sha256 = 1d393523789b235bcfc1f821491bf86c5bcd29f47e04da7ebb85362b9ad81b0e
+```
+
+深度语义：
+
+```text
+candidate_limit = 每一路 Dense/BM25 的召回深度
+rerank_depth    = RRF union 中进入 Cross Encoder 的深度
+final_top_k     = Reranker 最终返回深度
+
+final_top_k <= rerank_depth <= 2 * candidate_limit
+```
+
+
 ## 通用常见问题
 
 ### `No module named fastapi`

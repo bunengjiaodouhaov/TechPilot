@@ -507,3 +507,44 @@ corpus_snapshot_sha256=1d393523789b235bcfc1f821491bf86c5bcd29f47e04da7ebb85362b9
 - Day 13 不实现 Reranker。
 - RRF 不能达到 Dense/BM25 oracle union 是预期风险，Fusion Top-K 本身可能产生 truncation loss。
 - Agent Harness 补充要求只做设计冻结，不抢 P2 主线；Day 13 没有实现 Tool Registry、Repo Explorer 或 Coding Agent。
+
+
+---
+
+## Day 14：Cross Encoder Reranker 与延迟/收益实验
+
+### 完成
+
+- 新增 `RerankerProvider`、`CrossEncoderRerankerProvider`、DTO 与独立 `RerankingService`
+- 使用成熟 OSS `sentence-transformers`；正式模型 `BAAI/bge-reranker-v2-m3`
+- PostgreSQL 继续提供权威 Chunk 正文
+- focused tests、真实 MPS smoke、30-case strict Golden 正式评测完成
+- 正式配置：`20 -> 20 -> 5`，`rrf_k=60`，`max_length=512`
+- Hybrid+Reranker：Recall@5 `0.866667`、MRR@5 `0.766667`、MISS 4
+- rescue 3、regression 0、原 Hybrid Top-5 命中保留 23/23
+- rerank inference mean `2323.19 ms`、P95 `2956.97 ms`
+- reranked total mean `3009.45 ms`、P95 `3699.76 ms`
+- bounded `rerank_depth=40` 质量不变、延迟显著增加，因此停止继续 depth 网格调参
+- 修正 Hybrid 深度 contract：单路 `candidate_limit=N` 时 fusion/rerank union 上限为 `2N`
+- ADR 冻结 `ToolContract` / `ToolResult` 最小字段；未实现 Tool Registry / Agent Runtime
+- Full Test Suite：183 passed
+- `git diff --check`：PASS
+
+### 关键结论
+
+- Reranker 解决“已召回候选的排序”，不是万能召回器。
+- case 11 / 15 / 26：Hybrid rank 7 / 9 / 11 -> rerank rank 1 / 1 / 2。
+- case 1 / 2 / 3 在 Dense/BM25 Top-20 都缺失，Cross Encoder 无法恢复。
+- case 25 的 RRF full rank 为 29；depth=40 虽让模型看到它，仍无法进入 Top-5。
+- PostgreSQL 回查 mean 约 3 ms，性能瓶颈在 Cross Encoder inference。
+- 当前质量收益明确，但交互式生产路径增量延迟过高，暂不接入 `AnswerService`。
+
+### 设计修正
+
+旧假设 `rerank_depth <= candidate_limit` 错把“单路召回深度”和“融合候选深度”当成同一概念。最终约束修正为：
+
+```text
+final_top_k <= rerank_depth <= 2 * candidate_limit
+```
+
+并同步更新 Hybrid Service、Reranking Service、eval validation 和 tests。

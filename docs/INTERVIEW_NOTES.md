@@ -295,3 +295,51 @@ RRF 只使用每个 Retriever 内部的相对排序，因此避免跨 Retriever 
 ### 为什么采用 Thin Agent / Thick Harness？
 
 Agent 控制层只负责有限规划、能力选择和终止；Tool Runtime、Context、Evidence/Verification、Trace/Evaluation 和权限边界作为可独立测试的 Harness 能力。这样 P3/P4 不需要把 Retriever 或 Verifier 重写成 LangGraph 节点，也避免 Day 13 提前变成 Coding Agent 项目。
+
+
+---
+
+## Day 14：Reranker 与 latency-quality trade-off
+
+### Retriever 和 Reranker 的职责有什么区别？
+
+Retriever 面向大语料快速召回候选，优化 recall；Reranker 只对有限候选集做更昂贵的 query-document 联合打分，优化最终排序。Reranker 不能恢复根本没进入候选池的目标 Chunk。
+
+### 为什么 Cross Encoder 通常更准但更慢？
+
+Dense Retriever 分别编码 Query 和 Document，再做向量相似度；Cross Encoder 把 Query 和 Document 联合输入，让 Transformer 建模 token-level 交互，因此排序更精细，但每个 query-document pair 都要重新前向计算。
+
+### Day 14 提升了多少？
+
+```text
+Hybrid             Recall@5=0.766667  MRR@5=0.588333
+Hybrid+Reranker    Recall@5=0.866667  MRR@5=0.766667
+```
+
+Recall@5 绝对提升 10 个百分点，MRR@5 提升 0.178334；救回 3 条，0 regression，保留原 Hybrid 23/23 命中。
+
+### 增加了多少延迟？
+
+正式 depth=20、MPS、模型 warm-up 后：
+
+```text
+Hybrid candidate mean      682.99 ms
+Rerank inference mean     2323.19 ms
+Rerank inference P95      2956.97 ms
+Reranked total mean       3009.45 ms
+Reranked total P95        3699.76 ms
+```
+
+PostgreSQL 正文回查 mean 仅 3.22 ms，增量成本主要来自 Cross Encoder inference。
+
+### 为什么不把 rerank_depth 调到 40？
+
+depth=40 让 Cross Encoder 看完整 RRF union，但 Recall@5 / MRR@5 完全不变；inference mean 从 2323.19 ms 增到 3893.50 ms，P95 增到 5850.06 ms。更深候选池没有质量收益，只增加延迟。
+
+### candidate_limit、rerank_depth、final_top_k 为什么必须分开？
+
+`candidate_limit` 是 Dense/BM25 每一路召回深度；两路 union 理论上最多有 `2 * candidate_limit` 个不同 Chunk。`rerank_depth` 是 fusion 后进入 Cross Encoder 的数量，`final_top_k` 是最终输出数量。
+
+### 为什么当前不把 Reranker 直接接入生产 AnswerService？
+
+离线质量收益明确，但平均增加约 2.33 秒、P95 增加约 2.96 秒。生产决策必须同时看质量和 latency，不能因为 Recall/MRR 提升就自动切默认链路。

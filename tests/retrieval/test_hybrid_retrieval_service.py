@@ -367,9 +367,9 @@ async def test_search_rejects_conflicting_shared_identity() -> None:
         (
             "query",
             1,
-            4,
+            2,
             5,
-            "candidate_limit",
+            "twice candidate_limit",
         ),
     ],
 )
@@ -401,3 +401,63 @@ async def test_search_validates_arguments(
 
     assert dense.calls == []
     assert bm25.calls == []
+
+
+@pytest.mark.asyncio
+async def test_search_can_fuse_more_results_than_single_route_candidate_limit() -> None:
+    dense = FakeDenseRetrievalService(
+        [
+            make_dense_hit(
+                point_id=1,
+                chunk_id="dense-a",
+                score=0.9,
+            ),
+            make_dense_hit(
+                point_id=2,
+                chunk_id="dense-b",
+                score=0.8,
+            ),
+        ]
+    )
+
+    bm25 = FakeBM25RetrievalService(
+        [
+            make_bm25_hit(
+                point_id=3,
+                chunk_id="bm25-a",
+                score=12.0,
+            ),
+            make_bm25_hit(
+                point_id=4,
+                chunk_id="bm25-b",
+                score=10.0,
+            ),
+        ]
+    )
+
+    service = HybridRetrievalService(
+        dense_retrieval_service=dense,
+        bm25_retrieval_service=bm25,
+        rrf_k=60,
+    )
+
+    hits = await service.search(
+        query="union depth",
+        workspace_id=1,
+        candidate_limit=2,
+        limit=4,
+    )
+
+    assert len(hits) == 4
+    assert {
+        hit.chunk_id
+        for hit in hits
+    } == {
+        "dense-a",
+        "dense-b",
+        "bm25-a",
+        "bm25-b",
+    }
+
+    assert dense.calls[0]["limit"] == 2
+    assert bm25.calls[0]["limit"] == 2
