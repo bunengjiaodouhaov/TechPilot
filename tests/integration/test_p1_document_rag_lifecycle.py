@@ -14,6 +14,11 @@ from app.answering.chunk_repository import ChunkRepository
 from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
 from app.answering.dto import LLMAnswer
+from app.answering.evidence_dto import (
+    EvidenceState,
+    EvidenceVerificationInput,
+    EvidenceVerificationResult,
+)
 from app.answering.workspace_repository import WorkspaceRepository
 from app.api.dependencies import (
     get_answer_service,
@@ -26,6 +31,41 @@ from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.document import Document
 from app.models.workspace import Workspace
+
+
+class PromptCheckingFakeEvidenceVerifier:
+    """Deterministic verifier boundary for the lifecycle integration test."""
+
+    def __init__(self, *, marker: str) -> None:
+        self._marker = marker
+        self.calls: list[EvidenceVerificationInput] = []
+
+    async def verify(
+        self,
+        *,
+        request: EvidenceVerificationInput,
+    ) -> EvidenceVerificationResult:
+        if not request.evidence:
+            raise AssertionError("P1 lifecycle verifier received no evidence")
+
+        if request.evidence[0].source_id != "SOURCE_1":
+            raise AssertionError(
+                "P1 lifecycle verifier did not receive SOURCE_1"
+            )
+
+        if self._marker not in request.evidence[0].text:
+            raise AssertionError(
+                "P1 lifecycle verifier did not receive the uploaded evidence"
+            )
+
+        self.calls.append(request)
+        return EvidenceVerificationResult(
+            state=EvidenceState.SUFFICIENT,
+            reasons=(),
+            supporting_source_ids=("SOURCE_1",),
+            conflicting_source_ids=(),
+            explanation="The uploaded lifecycle evidence directly supports the target.",
+        )
 
 
 class PromptCheckingFakeLLM:
@@ -77,6 +117,7 @@ async def test_p1_document_rag_lifecycle() -> None:
         f"TechPilot P1 生命周期验证标识是 {marker}。\n"
     ).encode("utf-8")
 
+    fake_verifier = PromptCheckingFakeEvidenceVerifier(marker=marker)
     fake_llm = PromptCheckingFakeLLM(marker=marker)
     document_id: int | None = None
 
@@ -97,6 +138,7 @@ async def test_p1_document_rag_lifecycle() -> None:
             context_builder=ContextBuilder(
                 max_characters=settings.answer_context_max_characters,
             ),
+            evidence_verifier=fake_verifier,
             llm_provider=fake_llm,
             workspace_repository=WorkspaceRepository(session=session),
         )
@@ -156,6 +198,7 @@ async def test_p1_document_rag_lifecycle() -> None:
             assert citation["page_start"] is None
             assert citation["page_end"] is None
             assert marker in citation["quote"]
+            assert len(fake_verifier.calls) == 1
             assert len(fake_llm.calls) == 1
 
             delete_response = await client.delete(
@@ -177,6 +220,7 @@ async def test_p1_document_rag_lifecycle() -> None:
             deleted_answer_body = answer_after_delete.json()
             assert deleted_answer_body["refused"] is True
             assert deleted_answer_body["citations"] == []
+            assert len(fake_verifier.calls) == 1
             assert len(fake_llm.calls) == 1
 
         async with AsyncSessionLocal() as session:
@@ -206,7 +250,4 @@ async def test_p1_document_rag_lifecycle() -> None:
             )
             await session.commit()
 
-        # The global async engine may otherwise retain asyncpg connections
-        # bound to this pytest event loop. Later sync TestClient tests run the
-        # application in another loop and can receive a false 503 health result.
         await engine.dispose()

@@ -548,3 +548,51 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 ```
 
 并同步更新 Hybrid Service、Reranking Service、eval validation 和 tests。
+---
+
+## Day 15：Evidence Verifier / Evidence Sufficiency
+
+### 完成
+
+- 新增 Evidence Verifier provider-neutral Protocol。
+- 新增 Pydantic Evidence input/output contract，可直接导出 JSON Schema。
+- 新增 DeepSeek Evidence Verifier Provider 与独立 System Prompt。
+- Prompt version 从 `evidence-verifier-v1` 收紧到 `evidence-verifier-v2`。
+- 将生产 `AnswerService` 接入 Evidence Verifier gate；Retrieval 仍保持 Dense-only。
+- `INSUFFICIENT / CONFLICTING` 在生成前直接拒答。
+- `SUFFICIENT` 后只把 verified supporting sources 发送给 Answer LLM。
+- Citation 只允许来自 verified supporting sources。
+- 新增真实 Verifier smoke、正式 Evidence Eval 和相关回归测试。
+- 6-case reviewed local Golden 正式评测达到 state 6/6、primary reason 6/6。
+- Full Test Suite：227 passed。
+- `git diff --check`：PASS。
+
+### 关键设计
+
+- Retrieval Relevance 与 Evidence Sufficiency 必须拆开；“相关”不能推出“能证明”。
+- Evidence Verifier 的输入来自真实 `BuiltContext.sources`，不能检查随后不会进入生成上下文的正文。
+- Evidence provenance 采用通用 `source_type / source_ref / title / locator / text`，不把未来 `verify_evidence` Tool Contract 固化成 Document-only Schema。
+- Pydantic 负责结构化输入输出校验，provider-neutral invariant validation 再检查 source identity、state/reason 和 source role 一致性。
+- 拒答由 evidence state 驱动，不使用模型自报 confidence 作为 Gate。
+- 生成上下文必须缩小为 verified supporting sources，否则模型仍可能从“相关但未验证”的来源取事实并把 Citation 错挂到合法 Source。
+- `insufficient` 使用单一 primary reason。reason taxonomy 采用最小决定性原因，而不是级联罗列所有下游缺失。
+- Evidence Verifier 作为未来 Thick Harness 的 Verification boundary 预留 Schema，但 Day 15 不实现 Tool Registry / Agent Runtime。
+
+### 验收
+
+- Evidence Verifier focused tests：PASS
+- DeepSeek Evidence Verifier smoke：PASS
+- Formal Evidence Eval：6/6 state exact
+- Formal Evidence Eval：6/6 primary reason exact
+- Runtime errors：0
+- Full Test Suite：227 passed
+- `git diff --check`：PASS
+- 非阻塞警告：Starlette TestClient / httpx deprecation warning
+
+### 错误与修复
+
+- 第一版 Day 15 overlay 漏迁移旧 `AnswerService(...)` / `_build_answer(...)` 测试调用点，导致 6 条 full-regression 失败；补齐测试依赖和新 verification 参数后完整回归恢复通过。
+- 第一版 `EvidenceItem` 使用 Document-specific 字段，不利于未来 Code/Web Evidence 复用；改为 provider-neutral provenance。
+- 第一版结构化返回使用手工 JSON 校验，不完全满足项目“结构化输出经过 Pydantic 校验”的规范；改为 Pydantic contract，并保留 provider-neutral 业务 invariant validation。
+- 第一版 `SUFFICIENT` 后仍把全部 Context 交给生成模型，存在从未验证来源取事实的风险；改为只渲染 verified supporting sources。
+- `evidence-verifier-v1` 在 subject mismatch / relation missing case 上会级联追加下游 reason，formal reason exact match 只有 4/6；没有修改 Golden，而是将 Prompt/contract 升级为 v2 单一 primary reason，最终 6/6。

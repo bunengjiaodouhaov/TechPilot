@@ -11,6 +11,10 @@ from app.answering.dto import (
     LLMAnswer,
     RetrievedContext,
 )
+from app.answering.evidence_dto import (
+    EvidenceState,
+    EvidenceVerificationResult,
+)
 from app.ingestion.chunker import StructureAwareChunker
 from app.ingestion.parsers.markdown import MarkdownParser
 from app.ingestion.parsers.pdf import PDFParser
@@ -41,6 +45,18 @@ def _to_retrieved_context(
     )
 
 
+def _sufficient_verification(
+    *source_ids: str,
+) -> EvidenceVerificationResult:
+    return EvidenceVerificationResult(
+        state=EvidenceState.SUFFICIENT,
+        reasons=(),
+        supporting_source_ids=tuple(source_ids),
+        conflicting_source_ids=(),
+        explanation="Evidence supports the test answer.",
+    )
+
+
 def _build_citation(
     context: RetrievedContext,
 ) -> tuple[BuiltContext, Citation]:
@@ -56,6 +72,7 @@ def _build_citation(
             refused=False,
         ),
         built_context=built_context,
+        verification=_sufficient_verification("SOURCE_1"),
     )
 
     return built_context, answer.citations[0]
@@ -198,7 +215,7 @@ def test_context_budget_omitted_source_cannot_be_cited() -> None:
 
     with pytest.raises(
         InvalidLLMCitationError,
-        match="LLM cited unknown sources: SOURCE_2",
+        match="not verified as supporting: SOURCE_2",
     ):
         AnswerService._build_answer(
             question="Question",
@@ -208,4 +225,5 @@ def test_context_budget_omitted_source_cannot_be_cited() -> None:
                 refused=False,
             ),
             built_context=built_context,
+            verification=_sufficient_verification("SOURCE_1"),
         )

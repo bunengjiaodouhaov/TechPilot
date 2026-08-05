@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P2：高质量 RAG — Day 14 Cross Encoder Reranker 已完成；P1 Gate 仍为 `FIX`
+P2：高质量 RAG — Day 15 Evidence Verifier 已完成；P1 Gate 仍为 `FIX`
 
 ## 阶段状态
 
@@ -16,8 +16,9 @@ P2：高质量 RAG — Day 14 Cross Encoder Reranker 已完成；P1 Gate 仍为 
 - Day 12：BM25 实现、正式评测与 Dense/BM25 对比完成
 - Day 13：RRF Hybrid Retrieval、真实评测、失败分析与 Agent Runtime ADR 完成
 - Day 14：Cross Encoder Reranker、30-case 质量/延迟实验、候选深度边界修正与 ToolContract/ToolResult 字段冻结完成
+- Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
 - P2 高质量 RAG：进行中
-- 下一步：Day 15 Evidence Verifier / Evidence Sufficiency 主线
+- 下一步：Day 16 P2 全部消融 + Trace identity 收口
 
 ## 已完成
 
@@ -92,6 +93,29 @@ P2：高质量 RAG — Day 14 Cross Encoder Reranker 已完成；P1 Gate 仍为 
 - 生产 `AnswerService` 仍保持 Dense-only；Day 14 没有因离线质量提升直接切生产路径
 - ADR 冻结 `ToolContract` / `ToolResult` 最小字段，不实现 Tool Registry / Agent Runtime
 
+
+### Day 15：Evidence Verifier / Evidence Sufficiency
+
+- 新增 provider-neutral `EvidenceVerifierProvider`
+- 新增 Pydantic `EvidenceItem` / `EvidenceVerificationInput` / `EvidenceVerificationResult`
+- Evidence provenance 使用 `source_type / source_ref / title / locator / text`，不把 Verifier 契约绑死在 Document Chunk，可直接映射未来 Code/Web evidence
+- Evidence state 固定为 `sufficient / insufficient / conflicting`
+- 不充分原因固定为 `no_evidence / subject_mismatch / attribute_missing / relation_missing / conflicting_evidence`
+- `insufficient` 采用单一 primary reason，避免主体错误继续级联为属性/关系缺失
+- Prompt version 冻结为 `evidence-verifier-v2`
+- Verifier 输出拒绝未知 Source、Source role 重叠、重复 Source、额外字段以及非法 state/reason 组合
+- 生产 `AnswerService` 保持 Dense-only Retrieval，但生成前新增 Evidence Verifier gate
+- `INSUFFICIENT / CONFLICTING` 在生成模型调用前直接拒答
+- `SUFFICIENT` 后生成模型只能看到 Verifier 明确认可的 supporting sources
+- 最终 Citation 只能绑定 Verifier 标记为 supporting 且真实进入 Context 的来源
+- 生成模型若在 Verifier 判定 `SUFFICIENT` 后再次自行拒答，视为状态不一致错误，而不是合法 evidence decision
+- 新增真实 DeepSeek smoke 和独立 Evidence Verifier evaluation
+- 6-case reviewed local Golden 覆盖 2 sufficient / 3 insufficient / 1 conflicting
+- 正式 Evidence Eval：state 6/6、primary reason 6/6、runtime errors 0
+- 完整自动化回归：227 passed
+- `git diff --check`：PASS
+- Evidence Verifier I/O 已可导出 JSON Schema，满足未来 `verify_evidence` Tool Schema 复用要求
+- Day 15 未实现 Tool Registry / Agent Runtime / Repo Explorer / Coding Agent
 
 ## 验收证据
 
@@ -233,7 +257,9 @@ device = mps
 - Hybrid real-service smoke：PASS
 - Reranker Provider / Service focused tests：PASS
 - Reranker real-model smoke：PASS
-- Full Test Suite：183 passed
+- Evidence Verifier real DeepSeek smoke：PASS
+- Evidence Verifier formal eval：6/6 state + 6/6 primary reason
+- Full Test Suite：227 passed
 - `git diff --check`：PASS
 - 非阻塞警告：Starlette TestClient / httpx deprecation warning
 - HF Hub 未认证警告不影响当前 smoke 结果

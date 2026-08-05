@@ -7,22 +7,21 @@ from app.answering.answer_service import (
     AnswerService,
     AnsweringDataConsistencyError,
     InvalidLLMCitationError,
+    UnexpectedLLMRefusalError,
 )
 from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
 from app.answering.dto import LLMAnswer, StoredChunk
-from app.retrieval.dto import (
-    ChunkVectorPayload,
-    VectorSearchHit,
+from app.answering.evidence_dto import (
+    EvidenceState,
+    EvidenceVerificationInput,
+    EvidenceVerificationResult,
 )
+from app.retrieval.dto import ChunkVectorPayload, VectorSearchHit
 
 
 class FakeRetrievalService:
-    def __init__(
-        self,
-        *,
-        hits: list[VectorSearchHit],
-    ) -> None:
+    def __init__(self, *, hits: list[VectorSearchHit]) -> None:
         self.hits = hits
         self.calls: list[dict[str, Any]] = []
 
@@ -44,11 +43,7 @@ class FakeRetrievalService:
 
 
 class FakeChunkRepository:
-    def __init__(
-        self,
-        *,
-        chunks: dict[int, StoredChunk],
-    ) -> None:
+    def __init__(self, *, chunks: dict[int, StoredChunk]) -> None:
         self.chunks = chunks
         self.calls: list[dict[str, Any]] = []
 
@@ -67,12 +62,32 @@ class FakeChunkRepository:
         return self.chunks
 
 
-class FakeLLMProvider:
+class FakeEvidenceVerifier:
     def __init__(
         self,
         *,
-        result: LLMAnswer,
+        result: EvidenceVerificationResult | None = None,
     ) -> None:
+        self.result = result or EvidenceVerificationResult(
+            state=EvidenceState.SUFFICIENT,
+            reasons=(),
+            supporting_source_ids=("SOURCE_1",),
+            conflicting_source_ids=(),
+            explanation="Test evidence is sufficient.",
+        )
+        self.calls: list[EvidenceVerificationInput] = []
+
+    async def verify(
+        self,
+        *,
+        request: EvidenceVerificationInput,
+    ) -> EvidenceVerificationResult:
+        self.calls.append(request)
+        return self.result
+
+
+class FakeLLMProvider:
+    def __init__(self, *, result: LLMAnswer) -> None:
         self.result = result
         self.calls: list[dict[str, str]] = []
 
@@ -91,11 +106,7 @@ class FakeLLMProvider:
         return self.result
 
 
-def make_hit(
-    *,
-    point_id: int = 101,
-    score: float = 0.91,
-) -> VectorSearchHit:
+def make_hit(*, point_id: int = 101, score: float = 0.91) -> VectorSearchHit:
     return VectorSearchHit(
         point_id=point_id,
         score=score,
@@ -113,10 +124,7 @@ def make_hit(
     )
 
 
-def make_stored_chunk(
-    *,
-    chunk_db_id: int = 101,
-) -> StoredChunk:
+def make_stored_chunk(*, chunk_db_id: int = 101) -> StoredChunk:
     return StoredChunk(
         chunk_db_id=chunk_db_id,
         chunk_id=f"stored-{chunk_db_id}",
@@ -136,14 +144,17 @@ def make_service(
     hits: list[VectorSearchHit],
     chunks: dict[int, StoredChunk],
     llm_answer: LLMAnswer,
+    verifier_result: EvidenceVerificationResult | None = None,
 ) -> tuple[
     AnswerService,
     FakeRetrievalService,
     FakeChunkRepository,
+    FakeEvidenceVerifier,
     FakeLLMProvider,
 ]:
     retrieval_service = FakeRetrievalService(hits=hits)
     chunk_repository = FakeChunkRepository(chunks=chunks)
+    evidence_verifier = FakeEvidenceVerifier(result=verifier_result)
     llm_provider = FakeLLMProvider(result=llm_answer)
 
     service = AnswerService(
@@ -151,6 +162,7 @@ def make_service(
         chunk_repository=chunk_repository,  # type: ignore[arg-type]
         context_enricher=ContextEnricher(),
         context_builder=ContextBuilder(max_characters=10_000),
+        evidence_verifier=evidence_verifier,
         llm_provider=llm_provider,
     )
 
@@ -158,13 +170,14 @@ def make_service(
         service,
         retrieval_service,
         chunk_repository,
+        evidence_verifier,
         llm_provider,
     )
 
 
 @pytest.mark.asyncio
 async def test_answer_builds_server_verified_citation() -> None:
-    service, _, _, llm_provider = make_service(
+    service, _, _, verifier, llm_provider = make_service(
         hits=[make_hit()],
         chunks={101: make_stored_chunk()},
         llm_answer=LLMAnswer(
@@ -183,18 +196,16 @@ async def test_answer_builds_server_verified_citation() -> None:
     assert result.text == "PostgreSQL 使用 MVCC。"
     assert result.refused is False
     assert len(result.citations) == 1
+    assert len(verifier.calls) == 1
 
     citation = result.citations[0]
-
     assert citation.chunk_id == "stored-101"
     assert citation.document_id == 20
     assert citation.document_name == "postgresql.pdf"
     assert citation.page_start == 4
     assert citation.page_end == 5
     assert citation.section == "Transactions"
-    assert citation.quote == (
-        "PostgreSQL uses MVCC for concurrency control."
-    )
+    assert citation.quote == "PostgreSQL uses MVCC for concurrency control."
 
     assert "[SOURCE_1]" in llm_provider.calls[0]["user_prompt"]
     assert "Answer only from the supplied sources" in (
@@ -204,7 +215,7 @@ async def test_answer_builds_server_verified_citation() -> None:
 
 @pytest.mark.asyncio
 async def test_answer_refuses_without_retrieval_hits() -> None:
-    service, _, chunk_repository, llm_provider = make_service(
+    service, _, chunk_repository, verifier, llm_provider = make_service(
         hits=[],
         chunks={},
         llm_answer=LLMAnswer(
@@ -223,12 +234,13 @@ async def test_answer_refuses_without_retrieval_hits() -> None:
     assert result.citations == ()
     assert result.refused is True
     assert chunk_repository.calls == []
+    assert verifier.calls == []
     assert llm_provider.calls == []
 
 
 @pytest.mark.asyncio
 async def test_answer_raises_when_all_hits_are_missing() -> None:
-    service, _, _, llm_provider = make_service(
+    service, _, _, verifier, llm_provider = make_service(
         hits=[make_hit()],
         chunks={},
         llm_answer=LLMAnswer(
@@ -242,17 +254,15 @@ async def test_answer_raises_when_all_hits_are_missing() -> None:
         AnsweringDataConsistencyError,
         match="all retrieved chunks are missing from PostgreSQL",
     ):
-        await service.answer(
-            question="Question",
-            workspace_id=1,
-        )
+        await service.answer(question="Question", workspace_id=1)
 
+    assert verifier.calls == []
     assert llm_provider.calls == []
 
 
 @pytest.mark.asyncio
-async def test_answer_refuses_when_llm_refuses() -> None:
-    service, _, _, _ = make_service(
+async def test_answer_rejects_llm_refusal_after_verifier_says_sufficient() -> None:
+    service, _, _, _, _ = make_service(
         hits=[make_hit()],
         chunks={101: make_stored_chunk()},
         llm_answer=LLMAnswer(
@@ -262,19 +272,16 @@ async def test_answer_refuses_when_llm_refuses() -> None:
         ),
     )
 
-    result = await service.answer(
-        question="Question",
-        workspace_id=1,
-    )
-
-    assert result.text == REFUSAL_TEXT
-    assert result.citations == ()
-    assert result.refused is True
+    with pytest.raises(
+        UnexpectedLLMRefusalError,
+        match="after evidence verifier returned sufficient",
+    ):
+        await service.answer(question="Question", workspace_id=1)
 
 
 @pytest.mark.asyncio
 async def test_answer_rejects_unknown_llm_source() -> None:
-    service, _, _, _ = make_service(
+    service, _, _, _, _ = make_service(
         hits=[make_hit()],
         chunks={101: make_stored_chunk()},
         llm_answer=LLMAnswer(
@@ -286,17 +293,14 @@ async def test_answer_rejects_unknown_llm_source() -> None:
 
     with pytest.raises(
         InvalidLLMCitationError,
-        match="LLM cited unknown sources: SOURCE_99",
+        match="not verified as supporting: SOURCE_99",
     ):
-        await service.answer(
-            question="Question",
-            workspace_id=1,
-        )
+        await service.answer(question="Question", workspace_id=1)
 
 
 @pytest.mark.asyncio
 async def test_answer_deduplicates_repeated_citations() -> None:
-    service, _, _, _ = make_service(
+    service, _, _, _, _ = make_service(
         hits=[make_hit()],
         chunks={101: make_stored_chunk()},
         llm_answer=LLMAnswer(
@@ -306,11 +310,7 @@ async def test_answer_deduplicates_repeated_citations() -> None:
         ),
     )
 
-    result = await service.answer(
-        question="Question",
-        workspace_id=1,
-    )
-
+    result = await service.answer(question="Question", workspace_id=1)
     assert len(result.citations) == 1
 
 
@@ -332,7 +332,7 @@ async def test_answer_rejects_invalid_arguments(
     retrieval_limit: int,
     message: str,
 ) -> None:
-    service, retrieval_service, _, _ = make_service(
+    service, retrieval_service, _, verifier, _ = make_service(
         hits=[],
         chunks={},
         llm_answer=LLMAnswer(
@@ -350,3 +350,4 @@ async def test_answer_rejects_invalid_arguments(
         )
 
     assert retrieval_service.calls == []
+    assert verifier.calls == []

@@ -735,3 +735,47 @@ git diff --check: PASS
 ```
 
 真实 Hybrid Service smoke 也已通过；生产 `AnswerService` 仍保持 Dense-only。
+## Day 15：Evidence Verifier 验证
+
+真实 DeepSeek smoke：
+
+```bash
+python -m scripts.evidence_verifier_smoke
+```
+
+预期：
+
+```text
+prompt_version: evidence-verifier-v2
+EVIDENCE VERIFIER SMOKE: PASS (3/3)
+```
+
+正式 Evidence Verifier evaluation：
+
+```bash
+python -m scripts.evidence_verifier_eval \
+  --dataset eval/evidence_verifier_golden.jsonl \
+  --output eval/evidence_verifier_results.jsonl
+```
+
+当前 Day 15 reviewed local Golden 预期：
+
+```text
+cases: 6
+runtime_errors: 0
+state_correct: 6
+state_accuracy: 1.000000
+reason_exact_matches: 6
+reason_exact_match_rate: 1.000000
+sufficient: 2/2
+insufficient: 3/3
+conflicting: 1/1
+prompt_version: evidence-verifier-v2
+```
+
+注意：
+
+- `eval/evidence_verifier_golden.jsonl` 与 results 为本地评测资产；不要用 Verifier 输出自动重标 Golden。
+- Evidence Eval 的 state 正确与 reason 正确分开统计。
+- `insufficient` 只允许一个 primary reason。
+- Formal eval 通过不等于 P2 Gate 通过；Day 17 才做 P2 Gate。

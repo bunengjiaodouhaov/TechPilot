@@ -191,7 +191,7 @@ HybridRetrievalService       ← 独立实现 / evaluation path
 RerankingService             ← 独立实现 / evaluation path
 ```
 
-Day 14 已完成 Reranker 实现和质量/延迟证据，但约 2.33s mean 的增量延迟使其暂不适合作为无条件生产默认路径，因此 `AnswerService` 继续保持 Dense-only。
+Day 15 后 `AnswerService` 的 Retrieval 仍保持 Dense-only；BM25 / Hybrid / Reranker 仍是独立/evaluation path。变化只发生在可信回答边界：Context 构建后先经过 Evidence Verifier，只有 verified sufficient Evidence 才进入生成模型。
 
 ## 4. 可信问答链路
 
@@ -204,18 +204,33 @@ AnswerService
   ├── PostgreSQL Chunk 正文回查
   ├── Context Enricher
   ├── Context Builder
-  └── DeepSeek Provider
+  ├── EvidenceVerifierProvider
+  │     ↓
+  │   sufficient / insufficient / conflicting
+  │
+  ├── insufficient / conflicting → Refused
+  │
+  └── sufficient
         ↓
-      Answer + Citation + Refused
+      仅保留 verified supporting sources
+        ↓
+      DeepSeek Answer Provider
+        ↓
+      Answer + server-built Citation
 ```
 
 关键约束：
 
 - 完整正文必须从 PostgreSQL 回查。
 - 已删除 Document 不得进入正文回查。
+- Retrieval / Reranker 负责 relevance；Evidence Verifier 独立判断 Evidence Sufficiency。
+- Verifier 只检查真实进入 `BuiltContext.sources` 的 Evidence；被 Context Budget 排除的来源没有验证资格。
+- Verifier 的 `source_id` 必须来自实际输入 Evidence，未知 Source 直接报错。
+- `INSUFFICIENT / CONFLICTING` 在生成模型调用前拒答，拒答权不依赖生成模型自报 confidence。
+- `SUFFICIENT` 后，生成模型只能看到 Verifier 明确认可的 supporting sources，避免从未验证来源取事实后错误挂 Citation。
 - LLM 只可使用内部 `SOURCE_N` 选择 Citation；`SOURCE_N` 不得泄漏到用户可见正文。
-- Retrieval Relevance 不等于 Evidence Sufficiency。
-- Entity Scope Mismatch 或关键关系证据不足时必须拒答。
+- Citation 只能绑定“真实进入 Context + Verifier 明确认可 + 生成模型实际引用”的来源。
+- 生成模型若在 Verifier 已判 `SUFFICIENT` 后再次自行拒答，视为生成状态与 evidence state 不一致。
 - Refused 不返回 Citation。
 
 ## 5. 删除链路
@@ -299,6 +314,43 @@ Answer correctness / Citation support / Refused / Runtime errors
 
 Day 11 answerable 生产评测：4/7 answer correct、4/7 citation supported、1/7 over-refusal，因此 P1 Gate = FIX。
 
+### Evidence Sufficiency
+
+```text
+Reviewed Evidence Cases
+        ↓
+EvidenceVerificationInput
+        ↓
+DeepSeekEvidenceVerifierProvider
+        ↓
+Pydantic structured validation
+        ↓
+provider-neutral invariant validation
+        ↓
+state / primary reason / source roles
+```
+
+Day 15 正式 reviewed local Golden：
+
+- cases：6
+- sufficient：2
+- insufficient：3
+- conflicting：1
+- state accuracy：6/6
+- primary reason exact match：6/6
+- runtime errors：0
+- prompt version：`evidence-verifier-v2`
+
+规则：
+
+- Golden 不能由 Verifier 输出自动回标。
+- `insufficient` 只保留一个最小决定性 primary reason，避免把下游缺失重复计为多个 failure type。
+- `subject_mismatch`：没有证据真正属于目标主体。
+- `attribute_missing`：目标主体存在，但询问属性/值不存在。
+- `relation_missing`：目标主体和属性/值都出现，但两者所需关系未建立。
+- `conflicting_evidence`：证据对目标关系存在实质冲突。
+- Evidence Verifier 输出本身不使用“模型 confidence”作为拒答 Gate。
+
 ## 7. Agent / Harness 边界
 
 详细决策见 `docs/adr/ADR-001-agent-runtime.md`。
@@ -328,7 +380,6 @@ Research / Understand / Analyze / Plan
 
 ## 8. 当前未实现能力
 
-- Evidence Verifier
 - 持久化 / 缓存化 BM25 lexical index
 - OCR
 - Outbox Pattern

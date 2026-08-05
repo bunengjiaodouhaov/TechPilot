@@ -30,6 +30,7 @@ async def test_answer_raises_when_workspace_does_not_exist() -> None:
         chunk_repository=cast(Any, object()),
         context_enricher=cast(Any, object()),
         context_builder=cast(Any, object()),
+        evidence_verifier=cast(Any, object()),
         llm_provider=cast(Any, object()),
         workspace_repository=cast(
             Any,

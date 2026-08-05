@@ -14,6 +14,7 @@ from app.answering.context_enricher import ContextEnricher
 from app.answering.workspace_repository import WorkspaceRepository
 from app.api.dependencies import (
     get_dense_retrieval_service,
+    get_evidence_verifier_provider,
     get_llm_provider,
 )
 from app.core.config import settings
@@ -257,6 +258,7 @@ def build_answer_service(
                 settings.answer_context_max_characters
             ),
         ),
+        evidence_verifier=get_evidence_verifier_provider(),
         llm_provider=get_llm_provider(),
         workspace_repository=WorkspaceRepository(
             session=session,

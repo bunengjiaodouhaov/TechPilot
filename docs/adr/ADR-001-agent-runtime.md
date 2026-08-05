@@ -312,3 +312,38 @@ RAG / Code RAG / JD Evidence capabilities
 ```
 
 v1 坚持只读分析；v2 才进入 Action / Modify / execution-based Verification。
+## Day 15：Evidence Verifier Contract 冻结
+
+Day 15 只冻结 Verification boundary，不实现 Tool Registry。
+
+未来 `verify_evidence` Tool 可直接复用当前 Pydantic Schema：
+
+```text
+EvidenceVerificationInput
+  target
+  evidence[]
+    source_id
+    text
+    source_type
+    source_ref
+    title?
+    locator?
+
+EvidenceVerificationResult
+  state
+  reasons
+  supporting_source_ids
+  conflicting_source_ids
+  explanation
+```
+
+约束：
+
+- `state ∈ {sufficient, insufficient, conflicting}`
+- `insufficient` 使用单一 primary reason
+- 不使用模型自报 confidence 作为终止 Gate
+- Source ID 必须来自真实输入 Evidence
+- supporting/conflicting role 不得重叠
+- Schema 使用 provider-neutral provenance，可映射 Document Chunk、Code file:lines 或未来 Web Evidence
+- 当前 `AnswerService` 已将 Evidence Verifier 作为生成前 Gate，但这不是 Tool Registry，也不是 Agent Runtime
+- Day 18+ 若进入 P3，可将这一 Schema 包装成 `verify_evidence` Tool，而无需重写 Verification 语义

@@ -8,7 +8,9 @@ from app.answering.answer_service import AnswerService
 from app.answering.chunk_repository import ChunkRepository
 from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
+from app.answering.deepseek_evidence_verifier import DeepSeekEvidenceVerifierProvider
 from app.answering.deepseek_llm import DeepSeekLLMProvider
+from app.answering.evidence_verifier import EvidenceVerifierProvider
 from app.answering.llm import LLMProvider
 from app.answering.workspace_repository import WorkspaceRepository
 from app.core.config import settings
@@ -69,6 +71,7 @@ def get_ingestion_service(
         indexing_service=get_indexing_service(),
     )
 
+
 def get_document_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> DocumentService:
@@ -90,8 +93,19 @@ def get_dense_retrieval_service() -> DenseRetrievalService:
 
 @lru_cache
 def get_llm_provider() -> LLMProvider:
-    """Build and reuse the configured LLM provider."""
+    """Build and reuse the configured answer-generation provider."""
     return DeepSeekLLMProvider(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )
+
+
+@lru_cache
+def get_evidence_verifier_provider() -> EvidenceVerifierProvider:
+    """Build and reuse the configured evidence-verification provider."""
+    return DeepSeekEvidenceVerifierProvider(
         api_key=settings.deepseek_api_key,
         base_url=settings.llm_base_url,
         model=settings.llm_model,
@@ -110,7 +124,7 @@ def get_answer_service(
         context_builder=ContextBuilder(
             max_characters=settings.answer_context_max_characters,
         ),
+        evidence_verifier=get_evidence_verifier_provider(),
         llm_provider=get_llm_provider(),
         workspace_repository=WorkspaceRepository(session=session),
     )
-

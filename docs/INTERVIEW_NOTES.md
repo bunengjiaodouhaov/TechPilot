@@ -343,3 +343,41 @@ depth=40 让 Cross Encoder 看完整 RRF union，但 Recall@5 / MRR@5 完全不�
 ### 为什么当前不把 Reranker 直接接入生产 AnswerService？
 
 离线质量收益明确，但平均增加约 2.33 秒、P95 增加约 2.96 秒。生产决策必须同时看质量和 latency，不能因为 Recall/MRR 提升就自动切默认链路。
+## Day 15：Evidence Verifier
+
+### 为什么 Retriever / Reranker 已经给了高相关结果，还要 Evidence Verifier？
+
+Retriever 和 Reranker 优化的是 relevance：哪些 Chunk 与 Query 更相关、排序更靠前。可信回答需要额外判断 sufficiency：Evidence 是否真的支持目标主体、询问属性和值，以及主体和属性之间的关系。
+
+典型失败是 Entity Scope Mismatch：Chunk 与 Query 在语义上高度相关，但描述的是另一个主体。高 relevance 不能把别的主体上的事实自动归因给目标主体。
+
+### 为什么 refusal 不能只依赖生成模型自己的 confidence？
+
+模型 confidence 不是经过校准的 Evidence 状态，也不能证明关键事实对应哪段 Evidence。TechPilot 将拒答前移到独立 Evidence Verifier：`INSUFFICIENT / CONFLICTING` 在生成前直接终止；只有 `SUFFICIENT` 才进入 Answer LLM。
+
+这样 refusal 的依据是可检查的 evidence state / reason / source identity，而不是模型“感觉自己是否确定”。
+
+### 为什么 Verifier 判 sufficient 后还要缩小生成 Context？
+
+如果 Verifier 只认可 `SOURCE_1`，但 Answer LLM 仍能看到 `SOURCE_2/3`，模型可能从未验证来源提取事实，再错误引用 `SOURCE_1`。因此生成阶段只接收 verified supporting sources。
+
+Citation 最终需要同时满足三层约束：
+
+1. 来源真实进入 Context。
+2. Verifier 明确认可为 supporting。
+3. Answer LLM 实际引用该 Source，Citation 元数据再由服务端构造。
+
+### 为什么 `insufficient` 只保留一个 primary reason？
+
+如果目标主体都不匹配，那么“目标属性不存在”和“目标关系不存在”只是主体错误的下游结果。把三者同时记为失败原因会使评测不可解释，也不利于未来 Agent Controller 决定下一动作。
+
+Day 15 使用最小决定性 taxonomy：
+
+```text
+no_evidence
+→ subject_mismatch
+→ attribute_missing
+→ relation_missing
+```
+
+冲突单独进入 `conflicting / conflicting_evidence`。
