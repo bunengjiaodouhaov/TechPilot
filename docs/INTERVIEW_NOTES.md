@@ -381,3 +381,18 @@ no_evidence
 ```
 
 冲突单独进入 `conflicting / conflicting_evidence`。
+
+
+## Day 16：P2 Ablation 与可审计评测
+
+### 为什么 P2 做 ablation 而不是继续调参？
+固定数据和配置比较有/无组件，证明收益来自哪里；继续围绕小 Golden 搜参会增加过拟合风险。
+
+### Reranker 的收益/代价？
+Recall@5 `0.766667 -> 0.866667`，3 rescue、0 regression；但增加约 2.32s mean / 2.96s P95 latency，所以不自动切生产默认。
+
+### 为什么 Evidence 非空不能作为 Gate？
+Retriever 判断 relevance，不判断是否支持主体/属性/关系或是否冲突。6-case 中 non-empty gate unsafe accept=4，Verifier=0。
+
+### 为什么同时记录 git_sha 和 git_dirty？
+SHA 只标识 commit；dirty run 还包含未提交代码，二者一起记录才能避免假可复现性。

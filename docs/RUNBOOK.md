@@ -779,3 +779,21 @@ prompt_version: evidence-verifier-v2
 - Evidence Eval 的 state 正确与 reason 正确分开统计。
 - `insufficient` 只允许一个 primary reason。
 - Formal eval 通过不等于 P2 Gate 通过；Day 17 才做 P2 Gate。
+
+
+## Day 16：P2 Ablation 与 Trace Identity
+
+正式汇总：
+```bash
+python -m scripts.p2_ablation_eval --evidence-results eval/evidence_verifier_results.jsonl
+```
+输出 `.local/day16/p2_ablation_summary.json`。Trace identity 位于 JSON 的 `trace` 对象。
+
+最终回归：
+```bash
+pytest -q tests/scripts/test_p2_ablation_eval.py
+pytest -q
+git diff --check
+git status --short
+```
+Day16：234 passed；`git diff --check` PASS。

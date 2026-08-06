@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P2：高质量 RAG — Day 15 Evidence Verifier 已完成；P1 Gate 仍为 `FIX`
+P2：高质量 RAG — Day 16 P2 Ablation + Trace Identity 已完成；Day 17 Gate pending
 
 ## 阶段状态
 
@@ -116,6 +116,18 @@ P2：高质量 RAG — Day 15 Evidence Verifier 已完成；P1 Gate 仍为 `FIX`
 - `git diff --check`：PASS
 - Evidence Verifier I/O 已可导出 JSON Schema，满足未来 `verify_evidence` Tool Schema 复用要求
 - Day 15 未实现 Tool Registry / Agent Runtime / Repo Explorer / Coding Agent
+
+### Day 16：P2 Ablation + Trace Identity
+
+- 固定最小 ablation matrix，不继续对 30 条 Golden 做无界参数搜索。
+- Dense `0.700000/0.500000`；BM25 `0.700000/0.567778`；Hybrid `0.766667/0.588333`；Hybrid+Reranker `0.866667/0.766667`（Recall@5/MRR@5）。
+- Reranker vs Hybrid：Recall `+0.100000`、MRR `+0.178333`、rescues=3、regressions=0、retained=23/23。
+- Reranker added latency mean `2318.09 ms` / P95 `2962.15 ms`；total mean `2990.90 ms` / P95 `3684.15 ms`。
+- Evidence ablation：legacy non-empty gate accuracy `0.333333`、unsafe_accepts=4；Evidence Verifier accuracy `1.000000`、unsafe_accepts=0、over_refusals=0。
+- Cost proxy：Generator calls `6 -> 2`，avoided=4；无 token/美元 telemetry，不伪造货币成本。
+- Trace identity 已持久化到 `.local/day16/p2_ablation_summary.json`；baseline SHA `237780b6c8ab507a1d4dc95d94dc21b73eb1552d`，run 时 `git_dirty=true`。
+- Full suite：234 passed；`git diff --check`：PASS。
+- Day17 必须给出 P2 Gate：PASS / CONDITIONAL PASS / FIX。
 
 ## 验收证据
 

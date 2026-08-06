@@ -351,6 +351,12 @@ Day 15 正式 reviewed local Golden：
 - `conflicting_evidence`：证据对目标关系存在实质冲突。
 - Evidence Verifier 输出本身不使用“模型 confidence”作为拒答 Gate。
 
+### Evaluation Run Identity
+
+P2 正式 evaluation run 统一记录 `trace_id / config_version / git_sha / git_dirty`。`git_sha` 标识 baseline commit；若 `git_dirty=true`，不得将该 SHA 描述为包含全部本地实现的可复现版本。
+
+Day16 ablation 分开报告 retrieval quality、reranker gain、evidence refusal behavior、latency/cost proxy；没有 token/货币 telemetry 时不推导虚构成本。
+
 ## 7. Agent / Harness 边界
 
 详细决策见 `docs/adr/ADR-001-agent-runtime.md`。

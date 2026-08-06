@@ -596,3 +596,26 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 - 第一版结构化返回使用手工 JSON 校验，不完全满足项目“结构化输出经过 Pydantic 校验”的规范；改为 Pydantic contract，并保留 provider-neutral 业务 invariant validation。
 - 第一版 `SUFFICIENT` 后仍把全部 Context 交给生成模型，存在从未验证来源取事实的风险；改为只渲染 verified supporting sources。
 - `evidence-verifier-v1` 在 subject mismatch / relation missing case 上会级联追加下游 reason，formal reason exact match 只有 4/6；没有修改 Golden，而是将 Prompt/contract 升级为 v2 单一 primary reason，最终 6/6。
+
+
+## Day 16：P2 Ablation + Trace Identity
+
+### 完成
+- 新增独立 P2 ablation 汇总器，复用正式 Retrieval / Evidence 资产，不改生产 Retriever。
+- 固定 Dense / BM25 / Hybrid / Hybrid+Reranker 与 non-empty / Verifier gate 的最小消融。
+- Trace 统一记录 `trace_id / git_sha / git_dirty / config_version`。
+
+### 关键设计
+- 不继续参数 grid，避免 Golden 过拟合。
+- Evidence ablation 不混入 Generator answer correctness，只测 gate 行为。
+- 无 token/账单 telemetry 时只记录 Generator-call proxy。
+- dirty run 中 SHA 只表示 baseline commit。
+
+### 验收
+- Reranker：Recall +0.100000、MRR +0.178333、rescues=3、regressions=0。
+- Evidence legacy gate unsafe accepts=4；Verifier unsafe accepts=0。
+- Full suite 234 passed；`git diff --check` PASS。
+
+### 错误与修复
+- 初版错误猜测 Day15 result 目录；最终使用正式 `eval/evidence_verifier_results.jsonl`。
+- Trace 检查命令曾读取错误层级；实际字段位于 report `trace` 对象。
