@@ -191,7 +191,15 @@ HybridRetrievalService       ← 独立实现 / evaluation path
 RerankingService             ← 独立实现 / evaluation path
 ```
 
-Day 15 后 `AnswerService` 的 Retrieval 仍保持 Dense-only；BM25 / Hybrid / Reranker 仍是独立/evaluation path。变化只发生在可信回答边界：Context 构建后先经过 Evidence Verifier，只有 verified sufficient Evidence 才进入生成模型。
+Day 17 production freeze 后，`AnswerService` 的 Retrieval 继续保持 Dense-only；BM25 / Hybrid / Reranker 保持独立 capability / evaluation path。
+
+Production validation 依据：
+- 7-case Answer A/B：Dense `3/7`，Hybrid `4/7`
+- 当前 Hybrid Retrieval 平均增加约 `551 ms`
+- 三个核心失败 target 均未进入 Hybrid Top-20 candidate pool
+- Reranker 因此无法修复这些 candidate-generation failures
+
+当前 Retrieval 已知限制收敛为 candidate generation / chunk-level evidence coverage；不继续对 RRF 或 rerank depth 做无边界调参。
 
 ## 4. 可信问答链路
 
@@ -226,6 +234,7 @@ AnswerService
 - Retrieval / Reranker 负责 relevance；Evidence Verifier 独立判断 Evidence Sufficiency。
 - Verifier 只检查真实进入 `BuiltContext.sources` 的 Evidence；被 Context Budget 排除的来源没有验证资格。
 - Verifier 的 `source_id` 必须来自实际输入 Evidence，未知 Source 直接报错。
+- Provider 仅允许当前 request 内唯一、精确的 `source_ref -> source_id` 归一化；歧义或未知标识仍拒绝。
 - `INSUFFICIENT / CONFLICTING` 在生成模型调用前拒答，拒答权不依赖生成模型自报 confidence。
 - `SUFFICIENT` 后，生成模型只能看到 Verifier 明确认可的 supporting sources，避免从未验证来源取事实后错误挂 Citation。
 - LLM 只可使用内部 `SOURCE_N` 选择 Citation；`SOURCE_N` 不得泄漏到用户可见正文。

@@ -283,7 +283,7 @@ Day 16：
 
 Day 17：
 - P2 Gate
-- Gate PASS / CONDITIONAL PASS 后建立 P3 Harness Backlog
+- P2 Gate = PASS 后已完成 P3 Harness Backlog 冻结
 
 Day 18+：
 - 在 Code RAG 主线中实现 Tool Registry + Repo Explorer
@@ -347,3 +347,49 @@ EvidenceVerificationResult
 - Schema 使用 provider-neutral provenance，可映射 Document Chunk、Code file:lines 或未来 Web Evidence
 - 当前 `AnswerService` 已将 Evidence Verifier 作为生成前 Gate，但这不是 Tool Registry，也不是 Agent Runtime
 - Day 18+ 若进入 P3，可将这一 Schema 包装成 `verify_evidence` Tool，而无需重写 Verification 语义
+
+## Day 17：P3 Harness Backlog Freeze
+
+P2 capability Gate = PASS。Day 17 只冻结 P3 设计，不实现 P3。
+
+Day 18+ 实现顺序：
+
+1. Repository ingestion / exclusion
+2. minimal ToolContract / ToolResult runtime
+3. minimal Tool Registry
+4. read-only repository tools
+5. AST / symbol service
+6. CodeEvidence
+7. Repo Explorer + EvidencePack
+8. lightweight AgentEvent trace
+
+首批只读工具：
+
+- `tree`
+- `read_file`
+- `search_code`
+- `search_symbol`
+
+CodeEvidence 最小 provenance：
+
+- repository
+- file_path
+- symbol
+- line_start
+- line_end
+- snippet
+
+v1 明确禁止：
+
+- `edit_file`
+- shell / arbitrary command
+- git write
+- worktree modification
+- automatic code repair
+
+Registry v1 只使用简单 `dict[str, ToolContract]`。
+AST 是普通 service，不是 Agent。
+Repo Explorer 是只读 repository understanding capability，不是独立 Agent。
+AgentEvent 只做轻量 trace foundation，不建设 message bus / event sourcing。
+
+Day 18 第一目标：先建立 repository read boundary 和可独立测试的只读工具，再接 Repo Explorer。

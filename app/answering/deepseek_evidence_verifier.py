@@ -119,6 +119,66 @@ class DeepSeekEvidenceVerifierProvider:
         return response
 
     @staticmethod
+    def _normalize_provider_source_ids(
+        *,
+        request: EvidenceVerificationInput,
+        result: EvidenceVerificationResult,
+    ) -> EvidenceVerificationResult:
+        """Normalize an exact supplied provenance ref back to its source_id.
+
+        Some providers may copy EvidenceItem.source_ref into a field whose
+        contract requires source_id. We only normalize when the returned value
+        exactly matches one unique source_ref from the current request.
+
+        Arbitrary/ambiguous identifiers remain unchanged and are rejected by
+        the provider-neutral validator.
+        """
+
+        allowed_source_ids = {
+            item.source_id: item.source_id
+            for item in request.evidence
+        }
+
+        source_ref_to_ids: dict[str, list[str]] = {}
+        for item in request.evidence:
+            source_ref_to_ids.setdefault(
+                item.source_ref,
+                [],
+            ).append(item.source_id)
+
+        def normalize(values: tuple[str, ...]) -> tuple[str, ...]:
+            normalized: list[str] = []
+
+            for value in values:
+                if value in allowed_source_ids:
+                    normalized.append(value)
+                    continue
+
+                candidates = source_ref_to_ids.get(value, [])
+                if len(candidates) == 1:
+                    normalized.append(candidates[0])
+                else:
+                    normalized.append(value)
+
+            return tuple(normalized)
+
+        supporting = normalize(result.supporting_source_ids)
+        conflicting = normalize(result.conflicting_source_ids)
+
+        if (
+            supporting == result.supporting_source_ids
+            and conflicting == result.conflicting_source_ids
+        ):
+            return result
+
+        return result.model_copy(
+            update={
+                "supporting_source_ids": supporting,
+                "conflicting_source_ids": conflicting,
+            }
+        )
+
+    @staticmethod
     def _parse_response(
         *,
         response: httpx.Response,
@@ -130,6 +190,10 @@ class DeepSeekEvidenceVerifierProvider:
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("message content is empty")
             result = EvidenceVerificationResult.model_validate_json(content)
+            result = DeepSeekEvidenceVerifierProvider._normalize_provider_source_ids(
+                request=request,
+                result=result,
+            )
         except (ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
             raise DeepSeekEvidenceVerifierError(
                 "DeepSeek returned an invalid evidence verifier response"

@@ -2,17 +2,15 @@
 
 TechPilot 是一个面向开发者的技术文档检索与可信问答项目。当前版本完成了 P1 文档 RAG 主链路：文档摄取、Dense Retrieval、基于证据的回答、服务端 Citation、拒答和删除隔离。
 
-## P1 Gate 状态
+## 当前阶段状态
 
-**CONDITIONAL PASS**
-
-P1 核心工程链路与无答案安全性已经通过验证。转为最终 `PASS` 的唯一条件是：
-
-- 补充包含正常样本与易混淆样本的 `answerable=true` 定量评测集；
-- 记录 answer correctness、citation support 和 over-refusal；
-- 保留并审查失败样本，不用单次 E2E 或“未拒答”代替回答质量结论。
-
-OCR、Hybrid Retrieval 和 Reranker 不属于 P1 Gate 条件，分别作为文档摄取增强和 P2 检索优化范围处理。
+- P1 文档 RAG：质量 Gate = `FIX`
+- P2 高质量 RAG：capability Gate = `PASS`
+- v0.2-rag production Retrieval：`Dense-only`
+- BM25 / Hybrid RRF / Cross Encoder Reranker：已实现并完成评测，保持独立 capability / evaluation path
+- Evidence Verifier：已接入生产 AnswerService
+- 当前主要 Retrieval 限制：candidate generation / chunk-level evidence coverage
+- P3：设计已冻结，Day 18 开始只读 Code RAG / Harness 实现
 
 ## 当前能力
 
@@ -20,9 +18,10 @@ OCR、Hybrid Retrieval 和 Reranker 不属于 P1 Gate 条件，分别作为文�
 - Markdown 标题路径、PDF 页码范围与稳定 `chunk_id`
 - PostgreSQL 保存 Document、Chunk 正文和来源元数据
 - `intfloat/multilingual-e5-base` 生成 768 维归一化 Embedding
-- Qdrant Dense Top-K Retrieval 与 Workspace 隔离
+- Qdrant Dense Top-K production Retrieval 与 Workspace 隔离
+- BM25、RRF Hybrid、Cross Encoder Reranker 独立评测能力
 - PostgreSQL 权威正文回查与 Context Builder
-- DeepSeek 结构化回答与证据不足拒答
+- DeepSeek 结构化回答、Evidence Verifier gate 与证据不足/冲突拒答
 - 服务端根据实际进入 Context 的 `SOURCE_N` 构造 Citation
 - Document 软删除、Qdrant Best-effort Cleanup 与删除后检索隔离
 - 生命周期集成测试：Upload → Index → Retrieve → Answer → Cite → Delete → Refuse
@@ -183,7 +182,7 @@ incorrect-answer rate: 0.000000
 runtime errors:        0
 ```
 
-这 10 条全部为 `answerable=false`，因此不能推导有答案质量，`over_refusal_rate` 仍为 `n/a`。P1 `CONDITIONAL PASS` 的唯一待补证据是包含正常与易混淆 `answerable=true` 样本的定量评测，并记录 answer correctness、citation support 和 over-refusal。
+这 10 条全部为 `answerable=false`，因此不能推导有答案质量，`over_refusal_rate` 仍为 `n/a`。后续 answerable 质量复验已完成，P1 Gate 最终更新为 `FIX`；主要瓶颈定位为检索候选覆盖不足。
 
 ## 已知限制与阶段边界
 

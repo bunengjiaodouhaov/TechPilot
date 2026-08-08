@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P2：高质量 RAG — Day 16 P2 Ablation + Trace Identity 已完成；Day 17 Gate pending
+P2：高质量 RAG — Day 17 Gate = PASS；v0.2-rag production boundary 已冻结
 
 ## 阶段状态
 
@@ -18,7 +18,7 @@ P2：高质量 RAG — Day 16 P2 Ablation + Trace Identity 已完成；Day 17 Ga
 - Day 14：Cross Encoder Reranker、30-case 质量/延迟实验、候选深度边界修正与 ToolContract/ToolResult 字段冻结完成
 - Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
 - P2 高质量 RAG：进行中
-- 下一步：Day 16 P2 全部消融 + Trace identity 收口
+- 下一步：Day 18 进入 P3 只读 Code RAG / Harness 主线
 
 ## 已完成
 
@@ -127,7 +127,20 @@ P2：高质量 RAG — Day 16 P2 Ablation + Trace Identity 已完成；Day 17 Ga
 - Cost proxy：Generator calls `6 -> 2`，avoided=4；无 token/美元 telemetry，不伪造货币成本。
 - Trace identity 已持久化到 `.local/day16/p2_ablation_summary.json`；baseline SHA `237780b6c8ab507a1d4dc95d94dc21b73eb1552d`，run 时 `git_dirty=true`。
 - Full suite：234 passed；`git diff --check`：PASS。
-- Day17 必须给出 P2 Gate：PASS / CONDITIONAL PASS / FIX。
+- Day17 已完成 P2 Gate：`PASS`。
+
+
+### Day 17：P2 Gate + Production Freeze
+
+- P2 capability Gate：`PASS`
+- v0.2-rag production Retrieval：继续 `Dense-only`
+- Hybrid Answer A/B：`3/7 -> 4/7`
+- Hybrid request-time Retrieval 平均增加约 `551 ms`
+- P1 三个核心失败 target 均未进入 Hybrid Top-20 candidate pool
+- 因此 Reranker 无法修复这些 candidate-generation failures
+- Evidence Verifier source identity bug 已修复并增加 4 条回归测试
+- full pytest：PASS；`git diff --check`：PASS
+- P3 Harness backlog 已冻结；Day 17 不实现 P3
 
 ## 验收证据
 

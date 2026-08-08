@@ -619,3 +619,29 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 ### 错误与修复
 - 初版错误猜测 Day15 result 目录；最终使用正式 `eval/evidence_verifier_results.jsonl`。
 - Trace 检查命令曾读取错误层级；实际字段位于 report `trace` 对象。
+
+---
+
+## Day 17：P2 Gate 与生产架构冻结
+
+### 完成
+
+- P2 capability Gate 判定为 `PASS`
+- 对 Dense / Hybrid 做真实 AnswerService production-candidate A/B
+- Hybrid 将 7-case answer correctness 从 `3/7` 提升到 `4/7`
+- 当前 request-time Hybrid Retrieval 平均增加约 `551 ms`
+- 三个核心失败 target 均未进入 Hybrid Top-20 candidate pool
+- 确认 Reranker 无法修复 candidate pool 外的目标 Chunk
+- v0.2-rag production Retrieval 冻结为 Dense-only
+- 发现并修复 Evidence Verifier `source_ref/source_id` identity 问题
+- 新增 4 条 source identity 回归测试
+- full pytest 与 `git diff --check` 均通过
+- 冻结 P3 Harness backlog；未实现 P3
+
+### 关键结论
+
+- 离线 Retrieval 指标提升不等于可以直接 production rollout。
+- 正确文档进入 Top-K 不等于正确证据 Chunk 已进入 Context。
+- 当前主要 Retrieval 限制是 candidate generation / chunk-level evidence coverage。
+- Reranker 只重排已有候选，不能恢复 candidate miss。
+- Day 18 开始只读 Code RAG / Harness 主线。
