@@ -797,3 +797,52 @@ git diff --check
 git status --short
 ```
 Day16：234 passed；`git diff --check` PASS。
+
+## Day 18：P3 Repository / Harness Foundation 验证
+
+### Focused tests
+
+```bash
+pytest -q tests/repository tests/harness
+git diff --check
+```
+
+Day18 focused baseline：
+
+```text
+34 passed
+git diff --check: PASS
+```
+
+### Full regression
+
+```bash
+pytest -q
+git diff --check
+git status --short --untracked-files=all
+```
+
+要求：
+
+- Full pytest PASS。
+- 允许既有 Starlette TestClient/httpx deprecation warning，但不得把新 warning 混入“既有问题”。
+- Day18 新增文件在 commit 前保持可审计。
+- `.env`、`.local/`、`eval/` 不得提交。
+
+### Repository boundary smoke 关注点
+
+- path 必须保持在 repository root。
+- absolute / `..` escape 拒绝。
+- symlink 拒绝。
+- `.git/.venv/venv/node_modules/cache/generated` 不遍历。
+- `.env/.env.*` 不可读取；`.env.example/.env.sample` 可作为模板读取。
+- binary / oversized file 拒绝。
+- traversal 顺序 deterministic。
+
+### Harness contract smoke 关注点
+
+- input/output 必须经过 Pydantic validation。
+- READ/COMPUTE 为 v1 默认允许风险级别。
+- WRITE/DESTRUCTIVE 必须由 ToolRuntime 拒绝。
+- timeout / execution error / invalid output 使用结构化 `ToolResult.error_code`。
+- tool-level truncation 必须与统一 `ToolResult.truncated` 语义一致。

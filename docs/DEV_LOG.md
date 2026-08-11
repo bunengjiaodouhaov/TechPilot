@@ -645,3 +645,44 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 - 当前主要 Retrieval 限制是 candidate generation / chunk-level evidence coverage。
 - Reranker 只重排已有候选，不能恢复 candidate miss。
 - Day 18 开始只读 Code RAG / Harness 主线。
+
+---
+
+## Day 18：P3 Read-only Code RAG / Harness Foundation
+
+### 完成
+
+- 实现 RepositoryReadBoundary。
+- 实现 minimal ToolContract / ToolResult、ToolRuntime、ToolRegistry。
+- 实现 `tree / read_file / search_code / search_symbol` 四个只读 repository tools。
+- 实现 Python AST symbol service。
+- 冻结 `search_symbol` exact name / exact qualified_name 语义。
+- 实现 CodeEvidence builder。
+- focused tests：34 passed。
+- full pytest：PASS。
+- `git diff --check`：PASS。
+
+### 关键设计
+
+- repository root 是 runtime trust boundary；filesystem 安全不能依赖 `.gitignore`。
+- excluded directory 在 traversal 前 pruning，避免扫描后再丢弃。
+- v1 完全拒绝 symlink，避免仓库内路径指向仓库外。
+- ToolRegistry 只负责发现；ToolRuntime 负责 schema / permission / timeout / structured result；Tool 实现具体业务能力。
+- Harness 默认只允许 read/compute；write/destructive 不依赖 Agent Prompt 自律。
+- `search_code` 负责 lexical discovery；`search_symbol` 负责 AST structural discovery。
+- Search result 不直接等同 Evidence；CodeEvidence 必须绑定 authoritative repository file + line range。
+- `max_retries` 目前只保留 contract 字段，v1 read-only tools 为 0；未实现盲目 retry。
+- 不提前引入 LangGraph / Repo Explorer / Agent Runtime。
+
+### 验收
+
+- Repository + Harness focused suite：34 passed。
+- Full Test Suite：PASS。
+- `git diff --check`：PASS。
+- Starlette TestClient/httpx deprecation warning：既有非阻塞问题。
+
+### 错误与修复
+
+- 初版 `RepositoryReadBoundary` 只排除目录，`.env` 仍可能被 runtime 读取；补充 sensitive env file exclusion，同时允许 `.env.example/.env.sample`。
+- 初版 `search_symbol` 对 `qualified_name` 做 substring 匹配，搜索 class 名会连带返回其 method；改为 exact `name` / exact `qualified_name`。
+- review 发现 tool payload truncation 与统一 `ToolResult.truncated` 可能不一致；Day18 最终关闭前增加 runtime propagation regression。

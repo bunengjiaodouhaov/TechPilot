@@ -41,15 +41,15 @@
 
 - BM25：Day 12 完成
 - Dense / BM25 同 Golden 对比：完成
-- RRF Hybrid Retrieval：Day 13 下一步
-- Reranker：待开始
-- 无答案 / 回答质量回归：待开始
-- 消融实验：进行中
-- 冻结首个可投版本：待开始
+- RRF Hybrid Retrieval：Day 13 完成
+- Reranker：Day 14 完成
+- Evidence Verifier / Answer production-candidate A/B：Day 15–17 完成
+- 消融实验：Day 16 完成
+- v0.2-rag production boundary：Day 17 冻结（Dense-only）
 
 ### 当前状态
 
-- P2：进行中
+- P2 capability Gate：`PASS`
 - Day 12 正式结果：
   - Dense Recall@5 0.700000 / MRR@5 0.500000
   - BM25 Recall@5 0.700000 / MRR@5 0.567778
@@ -64,6 +64,13 @@
 - Code Hybrid Retrieval
 - 文件级引用与调用链
 - Code RAG 评测
+
+### 当前状态
+
+- P3：进行中
+- Day 18：Repository read boundary、minimal Tool Runtime / Registry、四个 read-only repository tools、Python AST / symbol service、CodeEvidence 完成
+- Day 19 下一步：EvidencePack + minimal Repo Explorer
+- v1 继续只读，不开放 edit / shell / git write / worktree
 
 ## P4：技术调研 Agent（Day 31–37）
 

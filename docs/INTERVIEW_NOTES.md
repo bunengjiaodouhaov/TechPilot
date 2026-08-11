@@ -396,3 +396,35 @@ Retriever 判断 relevance，不判断是否支持主体/属性/关系或是否�
 
 ### 为什么同时记录 git_sha 和 git_dirty？
 SHA 只标识 commit；dirty run 还包含未提交代码，二者一起记录才能避免假可复现性。
+
+---
+
+## Day 18：Thin Agent / Thick Harness 与 Code RAG Foundation
+
+### Harness 和 Agent 的职责怎么分？
+
+Agent 负责 control flow：理解任务、有限规划、选择下一工具、判断继续或终止。Harness 负责 capability execution、schema validation、permission、timeout、Evidence、Context 和 Trace 等确定性治理能力。这样 Tool / Retrieval / Evidence 能力可以脱离具体 Agent framework 独立测试和复用。
+
+### 为什么权限不能只写在 Prompt 里？
+
+Prompt 是行为约束，不是 security boundary。TechPilot 在 ToolRuntime 和 RepositoryReadBoundary 层强制 read-only；即使控制层产生错误决策，也不能因此获得 repository escape、shell、write 或 destructive 权限。
+
+### `.gitignore` 为什么不能替代 RepositoryReadBoundary？
+
+`.gitignore` 只决定 Git 是否跟踪文件，不限制 runtime filesystem read。`.env` 即使从不提交，也仍可能被程序读取，因此需要单独 runtime exclusion。
+
+### 为什么 `search_code` 和 `search_symbol` 分开？
+
+`search_code` 回答“字符串出现在哪里”，注释和字符串字面量也可能命中；`search_symbol` 使用 Python AST 回答“哪里真正定义了 class/function/method”。两者分别承担 lexical discovery 与 structural discovery。
+
+### ChatGPT 理解代码是不是靠 AST？
+
+不能这样等同。LLM 可以直接对源码 token 做语义理解；AST 在 Code RAG Harness 中提供确定性的代码结构解析。系统组合 LLM 语义推理和 AST/symbol tooling，而不是拿其中一个替代另一个。
+
+### 为什么 Search Result 不能直接作为 CodeEvidence？
+
+Search result 只表达候选定位/相关性。CodeEvidence 还需要稳定 provenance：repository、file path、symbol、line range 和 authoritative snippet。后续 EvidencePack / Verifier 才能检查结论来自哪段真实代码。
+
+### 为什么 snippet 必须重新从 repository 构造？
+
+如果让模型或调用方直接提交 snippet，会出现伪造、漂移或与文件版本不一致。CodeEvidenceBuilder 根据安全 path + line range 从真实 repository file 重建 snippet，把 provenance 绑定到事实来源。

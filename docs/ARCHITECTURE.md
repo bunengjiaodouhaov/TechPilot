@@ -393,11 +393,54 @@ Research / Understand / Analyze / Plan
 
 `edit_file`、shell、worktree、自动代码修改等 Action 能力属于 v2 backlog。
 
+### 7.1 P3 read-only Code RAG / Harness foundation
+
+Day18 开始将 ADR 中冻结的 Harness 边界落成可独立测试的基础设施：
+
+```text
+Future Thin Agent / Repo Explorer
+        ↓
+ToolRegistry
+        ↓
+ToolRuntime
+  ├── input/output schema validation
+  ├── risk permission
+  ├── timeout
+  ├── structured error
+  └── latency / trace metadata
+        ↓
+Repository Tools
+  ├── tree
+  ├── read_file
+  ├── search_code
+  └── search_symbol
+        ↓
+RepositoryReadBoundary
+        ↓
+Repository
+```
+
+RepositoryReadBoundary 统一负责 repository root containment、path canonicalization / escape rejection、symlink rejection、excluded directory pruning、sensitive `.env*` exclusion、binary / oversized file rejection 和 deterministic traversal。Repository tools 不重复实现 filesystem permission 规则。
+
+代码发现职责拆分：
+
+```text
+search_code = literal lexical discovery
+search_symbol + Python AST = class / function / method structural discovery
+CodeEvidence = authoritative code provenance
+```
+
+`search_symbol` v1 使用 exact `name` / exact `qualified_name` 语义，不因父级 class 名称自动展开全部成员。单文件 AST parse error 作为局部失败计数，不中止其他合法文件搜索。
+
+`CodeEvidence` 最小 provenance 为 `repository / file_path / symbol / line_start / line_end / snippet`；`snippet` 只能从 `RepositoryReadBoundary` 允许的真实文件和 line range 重建。Search result 只表示候选定位，不直接等同 Evidence。
+
+Day18 不实现 Repo Explorer / EvidencePack orchestration、Agent Control Layer 或 LangGraph。
+
 ## 8. 当前未实现能力
 
 - 持久化 / 缓存化 BM25 lexical index
 - OCR
 - Outbox Pattern
 - 流式上传和文件大小限制
-- Code RAG
-- Tool Registry / Agent Runtime
+- Repo Explorer / EvidencePack orchestration
+- Agent Runtime / Agent-level Trace

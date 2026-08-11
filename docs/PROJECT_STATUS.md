@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P2：高质量 RAG — Day 17 Gate = PASS；v0.2-rag production boundary 已冻结
+P3：只读 Code RAG / Harness — Day 18 foundation = PASS；P2 production boundary 继续 Dense-only
 
 ## 阶段状态
 
@@ -17,8 +17,9 @@ P2：高质量 RAG — Day 17 Gate = PASS；v0.2-rag production boundary 已冻�
 - Day 13：RRF Hybrid Retrieval、真实评测、失败分析与 Agent Runtime ADR 完成
 - Day 14：Cross Encoder Reranker、30-case 质量/延迟实验、候选深度边界修正与 ToolContract/ToolResult 字段冻结完成
 - Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
-- P2 高质量 RAG：进行中
-- 下一步：Day 18 进入 P3 只读 Code RAG / Harness 主线
+- P2 高质量 RAG：capability Gate = PASS；production Retrieval = Dense-only
+- P3 Code RAG：Day 18 foundation 完成
+- 下一步：Day 19 EvidencePack + minimal Repo Explorer
 
 ## 已完成
 
@@ -141,6 +142,25 @@ P2：高质量 RAG — Day 17 Gate = PASS；v0.2-rag production boundary 已冻�
 - Evidence Verifier source identity bug 已修复并增加 4 条回归测试
 - full pytest：PASS；`git diff --check`：PASS
 - P3 Harness backlog 已冻结；Day 17 不实现 P3
+
+### Day 18：P3 Read-only Code RAG / Harness Foundation
+
+- 新增 `RepositoryReadBoundary`，以 repository root 作为 runtime trust boundary。
+- canonical path 必须保持在 root 内；拒绝 absolute/path escape、symlink、binary、oversized file。
+- traversal 在进入目录前剪枝 `.git/.venv/venv/node_modules/cache/generated`，并排除 `.env/.env.*`；保留 `.env.example/.env.sample` 模板。
+- 新增 minimal `ToolContract / ToolResult`、`ToolRuntime`、`ToolRegistry`。
+- ToolRuntime 默认只允许 `READ / COMPUTE`，WRITE / DESTRUCTIVE 在 Harness 层拒绝。
+- 新增首批 read-only repository tools：`tree / read_file / search_code / search_symbol`。
+- `search_code` 只做 deterministic literal lexical matching。
+- 新增 Python AST service；`search_symbol` 只识别 class/function/method，使用 exact name / exact qualified_name semantics。
+- 单个 Python parse error 不终止全仓库 symbol search，通过 `parse_error_count` 暴露局部失败。
+- 新增 `CodeEvidence`，最小 provenance 为 `repository / file_path / symbol / line_start / line_end / snippet`。
+- snippet 根据安全 file path + line range 从 authoritative repository content 重建，不接受模型自由生成 provenance。
+- Repository/Harness focused tests：34 passed。
+- Full pytest：PASS。
+- `git diff --check`：PASS。
+- 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
+- Day18 继续遵守 v1 read-only boundary；没有 LangGraph、shell、edit_file、git write、worktree 或自动修复。
 
 ## 验收证据
 
