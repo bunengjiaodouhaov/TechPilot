@@ -508,7 +508,6 @@ corpus_snapshot_sha256=1d393523789b235bcfc1f821491bf86c5bcd29f47e04da7ebb85362b9
 - RRF 不能达到 Dense/BM25 oracle union 是预期风险，Fusion Top-K 本身可能产生 truncation loss。
 - Agent Harness 补充要求只做设计冻结，不抢 P2 主线；Day 13 没有实现 Tool Registry、Repo Explorer 或 Coding Agent。
 
-
 ---
 
 ## Day 14：Cross Encoder Reranker 与延迟/收益实验
@@ -596,7 +595,6 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 - 第一版结构化返回使用手工 JSON 校验，不完全满足项目“结构化输出经过 Pydantic 校验”的规范；改为 Pydantic contract，并保留 provider-neutral 业务 invariant validation。
 - 第一版 `SUFFICIENT` 后仍把全部 Context 交给生成模型，存在从未验证来源取事实的风险；改为只渲染 verified supporting sources。
 - `evidence-verifier-v1` 在 subject mismatch / relation missing case 上会级联追加下游 reason，formal reason exact match 只有 4/6；没有修改 Golden，而是将 Prompt/contract 升级为 v2 单一 primary reason，最终 6/6。
-
 
 ## Day 16：P2 Ablation + Trace Identity
 
@@ -746,70 +744,6 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 - Full pytest：PASS。
 - `git diff --check`：PASS。
 - Starlette TestClient/httpx deprecation warning 为既有非阻塞项。
-
-## Day 21：Code Chunk 与双路代码检索
-
-### 完成
-
-- 新增代码级索引与检索模块：
-  - `app/repository/code_index.py`
-  - `app/repository/code_retrieval.py`
-  - `app/repository/code_retrieval_tools.py`
-- Python 代码按函数 / 类等结构生成可检索 Code Chunk。
-- 复用既有 EmbeddingProvider，增加 Dense Code Retrieval。
-- 增加关键词代码检索。
-- Repo Explorer 可消费新的代码检索工具，但最终证据仍通过 `read_file` 回查真实源码后构造。
-- 新增对应 repository tests。
-
-### 关键设计
-
-- 文档 RAG 的“切块 -> 检索候选 -> 权威正文回查 -> 证据化”原则迁移到代码域。
-- 代码 Chunk 使用 `file_path / symbol / line_start / line_end` 等代码结构信息，而不是文档页码/章节。
-- 代码检索结果仍只是候选，不能直接作为 CodeEvidence。
-- 文档侧 VectorRepository 与 Workspace/Document 数据模型绑定，因此 Code RAG 不复用该存储契约，只复用通用 EmbeddingProvider。
-
-## Day 22：Code Hybrid Retrieval
-
-### 完成
-
-- 新增 `app/repository/code_hybrid.py`。
-- 将关键词代码检索与 Dense Code Retrieval 通过 RRF 融合。
-- Repo Explorer 可消费统一的 hybrid 候选结果。
-- 修复代码检索工具 `truncated` 传播，使 EvidencePack 能识别调查是否完整。
-- 新增 hybrid 与截断语义回归测试。
-
-### 关键设计
-
-- 不直接比较关键词分数与向量相似度，因为两者量纲不同。
-- RRF 只依赖各路 rank，复用 P2 已验证的融合原则。
-- Hybrid 仍只提升候选召回/排序；最终证据继续由 `read_file` 从权威源码构造。
-
-## Day 24：模块结构问题
-
-### 完成
-
-- 新增 `app/repository/module_structure.py`。
-- 新增 `app/repository/module_structure_tool.py`。
-- 对 Python 仓库提取模块、内部 import 依赖、模块顶层 class / function。
-- Repo Explorer 可通过 `inspect_modules` 工具获取模块结构候选，再通过 `read_file` 回查源码并构造证据。
-- 新增模块结构与工具级测试。
-- Day 24 完成后的完整回归：PASS。
-- `git diff --check`：PASS。
-
-### Day 23 处理
-
-原 Day 23 的“文件级引用/代码证据”范围未单独重复实现。现有链路已经覆盖：
-
-`search / retrieval -> read_file -> CodeEvidence(file_path, symbol, line range, snippet) -> EvidencePack`
-
-因此 Day 23 被视为由 Day 19–22 的现有证据链满足，不新增职责重复的模块。
-
-### 关键设计
-
-- 模块结构分析开始使用代码特有的结构信息，不再只是把文档 RAG 机械迁移到代码。
-- 模块依赖来自 Python import 结构；检索相关性与结构依赖是两个不同信号。
-- Repo Explorer 仍不能绕过 ToolRuntime 直接访问文件系统。
-- 模块分析失败或结果截断必须进入 EvidencePack 的 incomplete/failure 语义。
 
 ## Day 21–24：Code RAG 检索、融合与模块结构
 

@@ -617,7 +617,6 @@ final_top_k     = Reranker 最终返回深度
 final_top_k <= rerank_depth <= 2 * candidate_limit
 ```
 
-
 ## 通用常见问题
 
 ### `No module named fastapi`
@@ -780,7 +779,6 @@ prompt_version: evidence-verifier-v2
 - `insufficient` 只允许一个 primary reason。
 - Formal eval 通过不等于 P2 Gate 通过；Day 17 才做 P2 Gate。
 
-
 ## Day 16：P2 Ablation 与 Trace Identity
 
 正式汇总：
@@ -899,30 +897,6 @@ git status --short --untracked-files=all
 - trace payload 不复制完整 tool argument value。
 - event sink 抛错时 ToolResult 仍按业务执行结果返回。
 - EvidencePack 不被 trace_id 或 event state 污染。
-
-## Day 21–24：Code RAG 回归
-
-从项目根目录执行：
-
-```bash
-pytest -q tests/repository tests/harness tests/retrieval
-pytest -q
-git diff --check
-git status --short --untracked-files=all
-```
-
-Day 24 当前已记录：
-
-```text
-FULL_PYTEST=PASS
-DIFF_CHECK=PASS
-```
-
-若继续开发调用关系，必须保持：
-- repository access 继续经过只读工具边界；
-- 搜索/结构分析结果只作为候选；
-- 最终 CodeEvidence 继续从 `read_file` 权威源码构造；
-- 不提前开放 shell/edit/git write。
 
 ## Day 21–24 Code RAG 验证
 

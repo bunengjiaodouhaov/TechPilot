@@ -94,7 +94,6 @@ P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer =
 - 生产 `AnswerService` 仍保持 Dense-only；Day 14 没有因离线质量提升直接切生产路径
 - ADR 冻结 `ToolContract` / `ToolResult` 最小字段，不实现 Tool Registry / Agent Runtime
 
-
 ### Day 15：Evidence Verifier / Evidence Sufficiency
 
 - 新增 provider-neutral `EvidenceVerifierProvider`
@@ -129,7 +128,6 @@ P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer =
 - Trace identity 已持久化到 `.local/day16/p2_ablation_summary.json`；baseline SHA `237780b6c8ab507a1d4dc95d94dc21b73eb1552d`，run 时 `git_dirty=true`。
 - Full suite：234 passed；`git diff --check`：PASS。
 - Day17 已完成 P2 Gate：`PASS`。
-
 
 ### Day 17：P2 Gate + Production Freeze
 
@@ -309,7 +307,6 @@ device = mps
 
 生产判断：质量收益明确，但当前 Cross Encoder 增量 mean 约 `2.33s`、P95 约 `2.96s`，不直接作为交互式生产默认路径。
 
-
 ### 测试
 
 - RRF focused tests：PASS
@@ -363,16 +360,6 @@ Day 15 主线：Evidence Verifier / Evidence Sufficiency。继续区分 Retrieva
 - Full pytest：PASS。
 - `git diff --check`：PASS。
 - 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
-
-## Day 21–24：Code RAG 检索与模块结构
-
-- Day 21：完成 Code Chunk、关键词代码检索、Dense Code Retrieval。
-- Day 22：完成 RRF Code Hybrid Retrieval 与 `truncated` 完整性传播。
-- Day 23：不单独重复实现；文件级代码引用能力已由 CodeEvidence + EvidencePack + `read_file` 链路覆盖。
-- Day 24：完成 Python 模块结构、内部 import 依赖与顶层 symbol 提取，并接入 Repo Explorer。
-- Day 24 后 Full Test Suite：PASS。
-- `git diff --check`：PASS。
-- 下一真实缺口：调用关系 / 调用链线索。
 
 ## Day 21–24：Code RAG 检索与结构能力
 

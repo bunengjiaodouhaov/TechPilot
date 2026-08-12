@@ -178,7 +178,6 @@ Day 14 正式配置：`candidate_limit=20 / rerank_depth=20 / final limit=5 / rr
 
 Reranker 只能重新排序已经进入候选池的 Chunk，不能恢复 Dense/BM25 都未召回的目标。
 
-
 ### 3.5 当前生产边界
 
 ```text
@@ -516,48 +515,3 @@ RepoExplorer
 - Event sink 为 best-effort dependency；trace failure 不能改变业务结果。
 - 当前 `InMemoryAgentEventSink` 仅用于测试 / demo，持久化留到后续真正需要时再决定。
 
-## P3 Code RAG：Day 21–24 增量
-
-```text
-Repository
-  ↓
-Code structural chunking
-  ├── keyword code retrieval
-  └── dense code retrieval
-            ↓
-          RRF hybrid
-            ↓
-       candidate code ranges
-            ↓
-         Repo Explorer
-            ↓
-          read_file
-            ↓
-        CodeEvidence
-            ↓
-        EvidencePack
-```
-
-模块结构链路：
-
-```text
-Python files
-  ↓
-inspect_modules
-  ↓
-module / internal imports / top-level symbols
-  ↓
-Repo Explorer
-  ↓
-read_file authoritative verification
-  ↓
-CodeEvidence / EvidencePack
-```
-
-边界：
-
-- 检索结果、模块结构结果都是候选，不直接成为最终证据。
-- 最终源码片段必须由 `read_file` 回查权威文件。
-- 关键词与 Dense 分数不直接比较，Hybrid 使用 rank-based RRF。
-- `truncated`、parse failure 等会影响 `EvidencePack.incomplete`。
-- Repo Explorer 仍通过 ToolRegistry / ToolRuntime 调用只读工具，不直接绕过 repository boundary。
