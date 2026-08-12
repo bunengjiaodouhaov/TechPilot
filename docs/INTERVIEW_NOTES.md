@@ -428,3 +428,67 @@ Search result 只表达候选定位/相关性。CodeEvidence 还需要稳定 pro
 ### 为什么 snippet 必须重新从 repository 构造？
 
 如果让模型或调用方直接提交 snippet，会出现伪造、漂移或与文件版本不一致。CodeEvidenceBuilder 根据安全 path + line range 从真实 repository file 重建 snippet，把 provenance 绑定到事实来源。
+
+---
+
+## Day 19：EvidencePack 与 Repo Explorer
+
+### Repo Explorer 为什么不是“再造一个 Agent”？
+
+Repo Explorer 当前是 Thick Harness 内的确定性 repository investigation service。它只编排现有 read-only tools 并交付 EvidencePack，不负责 LLM planning、长期状态或自主决策。核心价值是 Context Isolation：仓库探索产生的大量候选和中间 Tool Result 不直接污染未来主上下文。
+
+### 为什么 Search Result 不能直接进入 EvidencePack？
+
+Search Result 表示“在哪里可能相关”，不是“这段 Evidence 的正文来源已经得到验证”。最终 CodeEvidence 必须重新通过 `read_file` 获取 authoritative repository content，再根据 path + line range 构造 snippet。
+
+### 为什么 Repo Explorer 不能直接调用 filesystem？
+
+如果 Explorer 直接 `Path.read_text()`，虽然可能复用安全 path，但它绕过 ToolRuntime 的 schema、permission、timeout、structured error 和 trace boundary。Day19 让 Explorer 只依赖 Registry/Runtime，从结构上限制 bypass。
+
+### `provenance_integrity` 和 `incomplete` 有什么区别？
+
+`provenance_integrity` 回答“已经交付的 Evidence 是否还能绑定真实 repository content”；`incomplete` 回答“这次探索是否完整”。例如 AST 有两个 parse error 时，已读出的 Evidence 仍可能来源可信，所以 integrity 可以为 true，但 exploration 必须 incomplete=true。
+
+### 为什么 tool truncation 不能当成普通 0 results？
+
+truncated 代表系统主动停止返回更多结果，不代表剩余仓库没有匹配。如果把它压成 0 results，下游可能错误地产生“仓库中不存在”的强结论。因此 truncation 必须进入 EvidencePack failure metadata。
+
+### Day19 为什么没有实现更丰富的 key_files / relationships / confidence？
+
+当前 Day19 目标是冻结最小、可测试的 evidence handoff contract。更丰富的 relationships、unresolved questions、confidence label 和 Context compression 属于后续 Context/Explorer 演进；在没有真实任务评测前提前加入会扩大抽象面。
+
+### Day20：为什么 Agent 系统需要 step-level trace？
+
+简答：最终答案错误时，只看普通 application log 很难判断问题发生在搜索、工具执行、证据形成还是后续推理。Day20 用 lightweight AgentEvent 把 TOOL_CALL、TOOL_RESULT、EVIDENCE_HANDOFF 串在同一个 trace_id 下，使一次 repository investigation 可以被复盘。
+
+追问：为什么 trace 失败不能让业务失败？
+
+答：Trace 是 observability 横切能力，不是 repository investigation 的业务结果。若工具本身成功，但 trace backend 暂时不可用，系统仍应返回正常 EvidencePack；否则监控系统会反过来成为业务单点故障。
+
+追问：为什么不把完整输入输出都写进 trace？
+
+答：代码仓库内容和用户参数可能较大或敏感。第一版只记录 argument keys、output keys、状态、耗时、错误码等摘要，既保留调试价值，又避免 trace 形成新的敏感数据副本和存储放大。
+
+一句话：Day19 解决“怎么调查并交可信证据”，Day20 解决“这次调查过程能不能被复盘”。
+
+## Day 21–24：Code RAG 面试要点
+
+### Code RAG 和文档 RAG 的共同点是什么？
+
+都遵循“结构化切块 -> 多路召回 -> 候选融合 -> 权威正文回查 -> 证据化”的主线。区别在于代码域要额外保留 symbol、文件路径、行号、模块依赖等结构信息。
+
+### 为什么代码 Hybrid 不直接加权关键词分数和向量分数？
+
+两路 score 的定义和尺度不同，直接相加会引入不可解释的尺度偏差。当前使用 RRF，只依赖各路排名。
+
+### 为什么 Hybrid 结果仍不能直接进入 EvidencePack？
+
+Retriever 输出的是候选。最终证据必须重新读取真实源码，并验证 file path 与 line range 一致后构造 CodeEvidence。
+
+### 为什么 Day 23 没有单独实现一套“代码引用”？
+
+现有 `read_file -> CodeEvidence -> EvidencePack` 已经提供文件路径、symbol、行号和源码片段，并具备 provenance/incomplete 语义。再造一套引用对象会职责重复。
+
+### Day 24 相比前面的 RAG 迁移新增了什么？
+
+开始利用代码特有的静态结构：Python module、internal import dependency、top-level class/function。结构依赖与文本/向量相关性是不同信号，可用于回答“模块如何组织、谁依赖谁”这类问题。

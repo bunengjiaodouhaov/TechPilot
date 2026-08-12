@@ -686,3 +686,175 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 - 初版 `RepositoryReadBoundary` 只排除目录，`.env` 仍可能被 runtime 读取；补充 sensitive env file exclusion，同时允许 `.env.example/.env.sample`。
 - 初版 `search_symbol` 对 `qualified_name` 做 substring 匹配，搜索 class 名会连带返回其 method；改为 exact `name` / exact `qualified_name`。
 - review 发现 tool payload truncation 与统一 `ToolResult.truncated` 可能不一致；Day18 最终关闭前增加 runtime propagation regression。
+
+---
+
+## Day 19：EvidencePack + minimal Repo Explorer
+
+### 完成
+
+- 验证 Day18 `ToolResult.truncated` propagation，并补充 regression test。
+- 新增 minimal `EvidencePack` contract。
+- 新增 structured `EvidencePackIssue` / issue taxonomy。
+- 新增 deterministic read-only `RepoExplorer`。
+- Explorer 通过 ToolRegistry / ToolRuntime 调用 `search_symbol / search_code / read_file`。
+- candidate discovery 与 authoritative Evidence construction 分离。
+- focused capability 已被 full suite 覆盖；full pytest PASS。
+- `git diff --check` PASS。
+
+### 关键设计
+
+- Repo Explorer 的目的不是增加 Agent persona，而是隔离 repository exploration context，只向后续层交付 EvidencePack。
+- Search result 只做 discovery；最终 snippet 必须来自 authoritative `read_file` content。
+- Explorer 不直接持有 filesystem boundary，因此不能为了方便绕过 ToolRuntime。
+- `provenance_integrity` 与 `incomplete` 是两个不同维度：来源正确不代表探索完整。
+- truncation、parse error、tool failure 等不能被压成“0 matches”；必须进入 structured issue metadata。
+- 当前不提前实现补充说明中的 richer EvidencePack、Context Manager、Verification Loop 或 Agent control flow。
+
+### 验收
+
+- Full pytest：PASS。
+- `git diff --check`：PASS。
+- 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
+
+### 错误与修复
+
+- Day18 已有 truncation propagation 实现，但缺少专门 regression test；Day19 补齐测试后关闭该 review 风险。
+- 直接让 Repo Explorer 调 `CodeEvidenceBuilder -> RepositoryReadBoundary` 虽仍安全，但会绕过 ToolRuntime/Registry orchestration boundary；Day19 改为 candidate -> `read_file` -> authoritative snippet -> CodeEvidence。
+
+## Day 20 - lightweight AgentEvent trace foundation
+
+### 完成
+
+- 新增 `app/harness/agent_event.py`。
+- 定义 `AgentEventType`：TOOL_CALL / TOOL_RESULT / EVIDENCE_HANDOFF。
+- 定义 lightweight `AgentEvent`、`AgentEventSink`、`InMemoryAgentEventSink`。
+- ToolRuntime 可选接收 event sink，并生成 correlated tool call/result events。
+- RepoExplorer 生成 Evidence handoff event。
+- trace_id 在同一次调查中贯穿 Runtime / Explorer。
+- 新增 event contract、ToolRuntime tracing、RepoExplorer correlated trace 测试。
+
+### 关键取舍
+
+- 不做 Event Sourcing，不把 trace 当业务状态。
+- 不复制完整输入/输出，只记录安全摘要。
+- trace sink failure 使用 best-effort isolation，不允许影响正常业务返回。
+- 没有 event sink 时保持原行为，保证 tracing 是可选横切能力。
+
+### 验收
+
+- Full pytest：PASS。
+- `git diff --check`：PASS。
+- Starlette TestClient/httpx deprecation warning 为既有非阻塞项。
+
+## Day 21：Code Chunk 与双路代码检索
+
+### 完成
+
+- 新增代码级索引与检索模块：
+  - `app/repository/code_index.py`
+  - `app/repository/code_retrieval.py`
+  - `app/repository/code_retrieval_tools.py`
+- Python 代码按函数 / 类等结构生成可检索 Code Chunk。
+- 复用既有 EmbeddingProvider，增加 Dense Code Retrieval。
+- 增加关键词代码检索。
+- Repo Explorer 可消费新的代码检索工具，但最终证据仍通过 `read_file` 回查真实源码后构造。
+- 新增对应 repository tests。
+
+### 关键设计
+
+- 文档 RAG 的“切块 -> 检索候选 -> 权威正文回查 -> 证据化”原则迁移到代码域。
+- 代码 Chunk 使用 `file_path / symbol / line_start / line_end` 等代码结构信息，而不是文档页码/章节。
+- 代码检索结果仍只是候选，不能直接作为 CodeEvidence。
+- 文档侧 VectorRepository 与 Workspace/Document 数据模型绑定，因此 Code RAG 不复用该存储契约，只复用通用 EmbeddingProvider。
+
+## Day 22：Code Hybrid Retrieval
+
+### 完成
+
+- 新增 `app/repository/code_hybrid.py`。
+- 将关键词代码检索与 Dense Code Retrieval 通过 RRF 融合。
+- Repo Explorer 可消费统一的 hybrid 候选结果。
+- 修复代码检索工具 `truncated` 传播，使 EvidencePack 能识别调查是否完整。
+- 新增 hybrid 与截断语义回归测试。
+
+### 关键设计
+
+- 不直接比较关键词分数与向量相似度，因为两者量纲不同。
+- RRF 只依赖各路 rank，复用 P2 已验证的融合原则。
+- Hybrid 仍只提升候选召回/排序；最终证据继续由 `read_file` 从权威源码构造。
+
+## Day 24：模块结构问题
+
+### 完成
+
+- 新增 `app/repository/module_structure.py`。
+- 新增 `app/repository/module_structure_tool.py`。
+- 对 Python 仓库提取模块、内部 import 依赖、模块顶层 class / function。
+- Repo Explorer 可通过 `inspect_modules` 工具获取模块结构候选，再通过 `read_file` 回查源码并构造证据。
+- 新增模块结构与工具级测试。
+- Day 24 完成后的完整回归：PASS。
+- `git diff --check`：PASS。
+
+### Day 23 处理
+
+原 Day 23 的“文件级引用/代码证据”范围未单独重复实现。现有链路已经覆盖：
+
+`search / retrieval -> read_file -> CodeEvidence(file_path, symbol, line range, snippet) -> EvidencePack`
+
+因此 Day 23 被视为由 Day 19–22 的现有证据链满足，不新增职责重复的模块。
+
+### 关键设计
+
+- 模块结构分析开始使用代码特有的结构信息，不再只是把文档 RAG 机械迁移到代码。
+- 模块依赖来自 Python import 结构；检索相关性与结构依赖是两个不同信号。
+- Repo Explorer 仍不能绕过 ToolRuntime 直接访问文件系统。
+- 模块分析失败或结果截断必须进入 EvidencePack 的 incomplete/failure 语义。
+
+## Day 21–24：Code RAG 检索、融合与模块结构
+
+### Day 21：Code Chunk + 双路代码检索
+
+- 新增代码级索引与检索模块：
+  - `app/repository/code_index.py`
+  - `app/repository/code_retrieval.py`
+  - `app/repository/code_retrieval_tools.py`
+- Python 代码按函数 / 类等结构生成 Code Chunk。
+- 复用既有 `EmbeddingProvider`，增加 Dense Code Retrieval。
+- 增加 Keyword Code Retrieval。
+- Repo Explorer 可消费代码检索工具。
+- 检索结果仍只是候选，最终必须通过 `read_file` 回查真实源码后构造 `CodeEvidence`。
+
+### Day 22：Code Hybrid Retrieval
+
+- 新增 `app/repository/code_hybrid.py`。
+- Keyword 与 Dense 两路结果通过 RRF 融合。
+- 不直接相加两路原始 score，避免不同 score 空间的尺度问题。
+- 修复 `truncated` 传播，使 `EvidencePack.incomplete` 能反映“只看了部分候选”的情况。
+- Hybrid 只负责候选召回/排序，不改变最终证据规则。
+
+### Day 23：不重复造引用层
+
+原计划中的“文件级引用 / 代码证据”已被现有链路覆盖：
+
+`retrieval/search -> read_file -> CodeEvidence(file_path, symbol, line range, snippet) -> EvidencePack`
+
+因此 Day 23 不新增职责重复的 `CodeCitation` 一类对象。
+
+### Day 24：模块结构
+
+- 新增：
+  - `app/repository/module_structure.py`
+  - `app/repository/module_structure_tool.py`
+- 对 Python 仓库提取：
+  - module
+  - internal import dependency
+  - top-level class / function
+- Repo Explorer 通过 `inspect_modules` 工具获取结构候选。
+- 最终源码证据仍由 `read_file` 回查并构造。
+- 模块结构属于静态结构线索，不等于运行时调用图。
+
+### 验证
+
+- Full pytest：PASS
+- `git diff --check`：PASS

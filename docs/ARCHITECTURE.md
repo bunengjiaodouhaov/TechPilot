@@ -436,11 +436,128 @@ CodeEvidence = authoritative code provenance
 
 Day18 不实现 Repo Explorer / EvidencePack orchestration、Agent Control Layer 或 LangGraph。
 
+### 7.2 EvidencePack / minimal Repo Explorer
+
+Day19 在 Day18 的 repository tools 之上增加最小只读编排层：
+
+```text
+Repository understanding task
+        ↓
+RepoExplorer
+        ↓
+ToolRegistry
+        ↓
+ToolRuntime
+   ├── search_symbol
+   ├── search_code
+   └── read_file
+        ↓
+RepositoryReadBoundary
+        ↓
+Repository
+        ↓
+CodeEvidence[]
+        ↓
+EvidencePack
+```
+
+职责边界：
+
+- Repo Explorer 负责 deterministic capability orchestration 与 evidence handoff，不负责 Agent planning / reasoning loop。
+- `search_symbol / search_code` 只产生 candidate location，不直接成为 Evidence。
+- candidate 必须通过 `read_file` 重新取得 authoritative content；snippet 根据 authoritative file content + line range 构造。
+- Explorer 构造器只接收 `repository / ToolRegistry / ToolRuntime`，不接收 filesystem root、`Path` 或 `RepositoryReadBoundary`，避免绕过 Harness permission boundary。
+- `tree` 保持为可注册的只读 repository capability；当前 direct search flow 不为了形式强制调用。
+
+最小 EvidencePack：
+
+```text
+query
+task_intent
+CodeEvidence[]
+provenance_integrity
+incomplete
+issues[]
+```
+
+`provenance_integrity` 表示已交付 Evidence 是否仍能绑定 authoritative repository content；`incomplete` 表示本次 exploration 是否存在截断、解析失败、tool failure、evidence limit 等覆盖缺口。二者必须分开，避免把“来源可信”和“搜索完整”混为同一状态。
+
+当前 Repo Explorer 的目的首先是 Context Isolation：仓库搜索中产生的候选和中间 Tool Result 不直接进入未来主模型上下文，只交付筛选后的 EvidencePack。
+
 ## 8. 当前未实现能力
 
 - 持久化 / 缓存化 BM25 lexical index
 - OCR
 - Outbox Pattern
 - 流式上传和文件大小限制
-- Repo Explorer / EvidencePack orchestration
 - Agent Runtime / Agent-level Trace
+
+### 7.3 Lightweight AgentEvent trace
+
+Day20 在现有 ToolRuntime / RepoExplorer 上增加 observability trace，而不是增加新的业务控制层：
+
+```text
+RepoExplorer
+   │
+   ├─ TOOL_CALL ──────┐
+   ├─ TOOL_RESULT ────┤
+   ├─ TOOL_CALL ──────┤── same trace_id
+   ├─ TOOL_RESULT ────┤
+   └─ EVIDENCE_HANDOFF┘
+```
+
+原则：
+
+- Event trace 是运行过程记录，不是 EvidencePack 业务状态。
+- `TOOL_CALL` 与 `TOOL_RESULT` 分开，支持定位调用前后失败点。
+- Tool events 由 ToolRuntime 统一产生，RepoExplorer 不复制 Runtime 的工具执行职责。
+- `EVIDENCE_HANDOFF` 由 RepoExplorer 在最终 EvidencePack 形成后产生。
+- 输入输出只记录 summary，避免 trace 成为完整代码/敏感参数的冗余副本。
+- Event sink 为 best-effort dependency；trace failure 不能改变业务结果。
+- 当前 `InMemoryAgentEventSink` 仅用于测试 / demo，持久化留到后续真正需要时再决定。
+
+## P3 Code RAG：Day 21–24 增量
+
+```text
+Repository
+  ↓
+Code structural chunking
+  ├── keyword code retrieval
+  └── dense code retrieval
+            ↓
+          RRF hybrid
+            ↓
+       candidate code ranges
+            ↓
+         Repo Explorer
+            ↓
+          read_file
+            ↓
+        CodeEvidence
+            ↓
+        EvidencePack
+```
+
+模块结构链路：
+
+```text
+Python files
+  ↓
+inspect_modules
+  ↓
+module / internal imports / top-level symbols
+  ↓
+Repo Explorer
+  ↓
+read_file authoritative verification
+  ↓
+CodeEvidence / EvidencePack
+```
+
+边界：
+
+- 检索结果、模块结构结果都是候选，不直接成为最终证据。
+- 最终源码片段必须由 `read_file` 回查权威文件。
+- 关键词与 Dense 分数不直接比较，Hybrid 使用 rank-based RRF。
+- `truncated`、parse failure 等会影响 `EvidencePack.incomplete`。
+- Repo Explorer 仍通过 ToolRegistry / ToolRuntime 调用只读工具，不直接绕过 repository boundary。

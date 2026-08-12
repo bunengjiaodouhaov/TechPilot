@@ -846,3 +846,106 @@ git status --short --untracked-files=all
 - WRITE/DESTRUCTIVE 必须由 ToolRuntime 拒绝。
 - timeout / execution error / invalid output 使用结构化 `ToolResult.error_code`。
 - tool-level truncation 必须与统一 `ToolResult.truncated` 语义一致。
+
+## Day 19：EvidencePack / Repo Explorer 验证
+
+### Focused / Harness validation
+
+```bash
+pytest -q \
+  tests/harness/test_tool_runtime.py \
+  tests/harness/test_evidence_pack.py \
+  tests/repository/test_repo_explorer.py
+
+pytest -q tests/repository tests/harness
+```
+
+### Full regression
+
+```bash
+pytest -q
+git diff --check
+git status --short --untracked-files=all
+```
+
+Day19 验收关注点：
+
+- tool output `truncated=True` 必须同步到 `ToolResult.truncated`。
+- RepoExplorer 只能经 ToolRegistry / ToolRuntime 调用 repository tools。
+- search result 不能直接作为 `CodeEvidence`。
+- `read_file` 返回的 authoritative path / content 必须与 candidate provenance 一致。
+- truncation、AST parse error、tool failure、evidence limit、provenance mismatch 必须显式进入 EvidencePack issue metadata。
+- provenance mismatch 的 suspect evidence 必须丢弃，而不是继续进入 EvidencePack。
+- 不允许 shell / edit / git write / worktree modification。
+
+### Day20 AgentEvent trace validation
+
+```bash
+pytest -q \
+  tests/harness/test_agent_event.py \
+  tests/harness/test_tool_runtime.py \
+  tests/repository/test_repo_explorer.py
+
+pytest -q tests/repository tests/harness
+pytest -q
+git diff --check
+git status --short --untracked-files=all
+```
+
+重点验证：
+
+- 同一调查中的 tool call / result / evidence handoff 共享 trace_id。
+- TOOL_RESULT 能记录 success/failure、latency、truncated 和 error_code 摘要。
+- trace payload 不复制完整 tool argument value。
+- event sink 抛错时 ToolResult 仍按业务执行结果返回。
+- EvidencePack 不被 trace_id 或 event state 污染。
+
+## Day 21–24：Code RAG 回归
+
+从项目根目录执行：
+
+```bash
+pytest -q tests/repository tests/harness tests/retrieval
+pytest -q
+git diff --check
+git status --short --untracked-files=all
+```
+
+Day 24 当前已记录：
+
+```text
+FULL_PYTEST=PASS
+DIFF_CHECK=PASS
+```
+
+若继续开发调用关系，必须保持：
+- repository access 继续经过只读工具边界；
+- 搜索/结构分析结果只作为候选；
+- 最终 CodeEvidence 继续从 `read_file` 权威源码构造；
+- 不提前开放 shell/edit/git write。
+
+## Day 21–24 Code RAG 验证
+
+从项目根目录执行：
+
+```bash
+pytest -q tests/repository tests/harness tests/retrieval
+pytest -q
+git diff --check
+git status --short --untracked-files=all
+```
+
+当前 Day 24 收尾记录：
+
+```text
+FULL_PYTEST=PASS
+DIFF_CHECK=PASS
+```
+
+继续开发时必须保持：
+
+- repository access 经过只读边界；
+- retrieval / module result 只作为候选或静态线索；
+- 最终 `CodeEvidence` 继续从 `read_file` 权威源码构造；
+- 不提前开放 shell / edit / git-write；
+- 静态 import/call clue 不夸大为完整运行时关系。

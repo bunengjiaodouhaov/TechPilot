@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P3：只读 Code RAG / Harness — Day 18 foundation = PASS；P2 production boundary 继续 Dense-only
+P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer = PASS；P2 production boundary 继续 Dense-only
 
 ## 阶段状态
 
@@ -18,8 +18,8 @@ P3：只读 Code RAG / Harness — Day 18 foundation = PASS；P2 production boun
 - Day 14：Cross Encoder Reranker、30-case 质量/延迟实验、候选深度边界修正与 ToolContract/ToolResult 字段冻结完成
 - Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
 - P2 高质量 RAG：capability Gate = PASS；production Retrieval = Dense-only
-- P3 Code RAG：Day 18 foundation 完成
-- 下一步：Day 19 EvidencePack + minimal Repo Explorer
+- P3 Code RAG：Day 19 EvidencePack + minimal Repo Explorer 完成
+- 下一步：Day 20 lightweight AgentEvent trace foundation
 
 ## 已完成
 
@@ -161,6 +161,21 @@ P3：只读 Code RAG / Harness — Day 18 foundation = PASS；P2 production boun
 - `git diff --check`：PASS。
 - 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
 - Day18 继续遵守 v1 read-only boundary；没有 LangGraph、shell、edit_file、git write、worktree 或自动修复。
+
+### Day 19：EvidencePack + minimal Repo Explorer
+
+- Day18 `ToolResult.truncated` propagation 增加 regression test，统一 Harness outer result 与 tool payload truncation 语义。
+- 新增最小 `EvidencePack`：`query / task_intent / evidence / provenance_integrity / incomplete / issues`。
+- `issues` 使用结构化 taxonomy，覆盖 tool unavailable、tool failure、tool truncation、AST parse error、evidence limit、provenance mismatch。
+- 新增 deterministic `RepoExplorer`，只通过 `ToolRegistry + ToolRuntime` 调用 repository tools。
+- `search_code / search_symbol` 仅提供 candidate location；最终 `CodeEvidence` 必须再次经 `read_file` 获取 authoritative repository content 后构造。
+- Explorer 不接收 `Path` 或 `RepositoryReadBoundary`，避免直接 filesystem bypass。
+- 同一文件的 authoritative read 在单次 explore 内复用，避免重复 read_file 调用。
+- `provenance_integrity` 与 `incomplete` 分离：合法 evidence 可以保持来源完整，同时 exploration 仍可因 truncation / parse error / tool failure 标记为不完整。
+- 未引入 LangGraph、Agent Control Layer、shell、edit_file、git write、worktree 或自动修复。
+- Full pytest：PASS。
+- `git diff --check`：PASS。
+- 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
 
 ## 验收证据
 
@@ -333,3 +348,40 @@ Agent 工程边界维护在 `docs/adr/ADR-001-agent-runtime.md`；Day 13 只做�
 Day 15 主线：Evidence Verifier / Evidence Sufficiency。继续区分 Retrieval Relevance 与 Evidence Sufficiency，并保持生产 `AnswerService` 不因离线 Reranker 指标自动切换。
 
 按 Agent Harness 补充说明，Day 15 仅让 Evidence Verifier 的输入输出能够映射到未来 Tool Schema；不实现 Tool Registry，不启动 Coding Agent。
+
+### Day 20：lightweight AgentEvent trace foundation
+
+- 新增轻量 `AgentEvent` contract，不实现 Agent Control Layer。
+- 最小事件类型：`TOOL_CALL / TOOL_RESULT / EVIDENCE_HANDOFF`。
+- `trace_id` 关联同一次 Repo Explorer 调查中的 ToolRuntime 与 Evidence handoff 事件。
+- ToolRuntime 对每次调用记录调用摘要、结果摘要、延迟、错误码和 truncation 状态。
+- RepoExplorer 在最终返回 EvidencePack 前记录 evidence handoff 摘要。
+- Trace 只记录参数名和输出字段摘要，不复制完整 tool input、文件正文或 Evidence payload。
+- Event sink 采用 best-effort；trace backend 失败不得改变正常 ToolResult / EvidencePack 结果。
+- Trace 与业务状态分离；EvidencePack 不增加 trace_id。
+- 未引入 LangGraph、LLM decision loop、shell、edit_file、git write 或 worktree modification。
+- Full pytest：PASS。
+- `git diff --check`：PASS。
+- 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
+
+## Day 21–24：Code RAG 检索与模块结构
+
+- Day 21：完成 Code Chunk、关键词代码检索、Dense Code Retrieval。
+- Day 22：完成 RRF Code Hybrid Retrieval 与 `truncated` 完整性传播。
+- Day 23：不单独重复实现；文件级代码引用能力已由 CodeEvidence + EvidencePack + `read_file` 链路覆盖。
+- Day 24：完成 Python 模块结构、内部 import 依赖与顶层 symbol 提取，并接入 Repo Explorer。
+- Day 24 后 Full Test Suite：PASS。
+- `git diff --check`：PASS。
+- 下一真实缺口：调用关系 / 调用链线索。
+
+## Day 21–24：Code RAG 检索与结构能力
+
+- Day 21：完成 Code Chunk、Keyword Code Retrieval、Dense Code Retrieval。
+- Day 22：完成 RRF Code Hybrid Retrieval 与 `truncated` 完整性传播。
+- Day 23：不单独重复实现；文件级代码证据已由 `read_file -> CodeEvidence -> EvidencePack` 覆盖。
+- Day 24：完成 Python module、内部 import dependency、top-level symbol 提取并接入 Repo Explorer。
+- 最新验证：
+  - Full pytest：PASS
+  - `git diff --check`：PASS
+- 当前 working tree 累计包含 Day 19–24 的未提交改动。
+- 下一真实能力缺口：静态调用关系 / 调用链线索。
