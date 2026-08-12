@@ -91,10 +91,29 @@ class PythonAstService:
     def list_symbols(self, path: Path) -> list[PythonSymbol]:
         try:
             source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-        except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             raise PythonAstParseError(
                 f"unable to parse Python source: {path}"
+            ) from exc
+
+        return self.list_symbols_from_source(
+            source,
+            filename=str(path),
+        )
+
+    def list_symbols_from_source(
+        self,
+        source: str,
+        *,
+        filename: str = "<memory>",
+    ) -> list[PythonSymbol]:
+        """Parse already-read authoritative source without a second file read."""
+
+        try:
+            tree = ast.parse(source, filename=filename)
+        except SyntaxError as exc:
+            raise PythonAstParseError(
+                f"unable to parse Python source: {filename}"
             ) from exc
 
         visitor = _SymbolVisitor()

@@ -2,6 +2,10 @@ import asyncio
 
 import pytest
 from pydantic import BaseModel
+from app.harness.agent_event import (
+    AgentEventType,
+    InMemoryAgentEventSink,
+)
 
 from app.harness.tool_runtime import (
     ToolErrorCode,
@@ -120,3 +124,84 @@ async def test_runtime_rejects_invalid_output() -> None:
 
     assert result.ok is False
     assert result.error_code == ToolErrorCode.INVALID_OUTPUT
+
+
+class TruncatedEchoOutput(BaseModel):
+    echoed: str
+    truncated: bool
+
+
+@pytest.mark.asyncio
+async def test_runtime_propagates_tool_level_truncation() -> None:
+    class TruncatedTool(FakeTool):
+        output_schema = TruncatedEchoOutput
+
+        async def execute(
+            self,
+            tool_input: EchoInput,
+        ) -> TruncatedEchoOutput:
+            return TruncatedEchoOutput(
+                echoed=tool_input.value,
+                truncated=True,
+            )
+
+    result = await ToolRuntime().invoke(
+        tool=TruncatedTool(),
+        arguments={"value": "hello"},
+    )
+
+    assert result.ok is True
+    assert result.data == {
+        "echoed": "hello",
+        "truncated": True,
+    }
+    assert result.truncated is True
+
+@pytest.mark.asyncio
+async def test_runtime_emits_tool_call_and_result_events() -> None:
+    sink = InMemoryAgentEventSink()
+
+    result = await ToolRuntime(event_sink=sink).invoke(
+        tool=FakeTool(),
+        arguments={"value": "secret-value"},
+        trace_metadata={"trace_id": "trace-events", "git_sha": "abc123"},
+    )
+
+    assert result.ok is True
+    assert [event.event_type for event in sink.events] == [
+        AgentEventType.TOOL_CALL,
+        AgentEventType.TOOL_RESULT,
+    ]
+
+    call_event, result_event = sink.events
+    assert call_event.trace_id == "trace-events"
+    assert result_event.trace_id == "trace-events"
+    assert result_event.parent_event_id == call_event.event_id
+    assert call_event.tool_name == "echo"
+    assert call_event.input_summary == {"argument_keys": ["value"]}
+    assert "secret-value" not in str(call_event.model_dump())
+    assert result_event.output_summary == {
+        "ok": True,
+        "has_data": True,
+        "truncated": False,
+        "data_keys": ["echoed"],
+    }
+    assert result_event.error_code is None
+    assert result_event.latency_ms is not None
+    assert result_event.trace_metadata["git_sha"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_runtime_tracing_failure_does_not_change_tool_result() -> None:
+    class FailingSink:
+        def record(self, event: object) -> None:
+            raise RuntimeError("trace backend unavailable")
+
+    result = await ToolRuntime(event_sink=FailingSink()).invoke(
+        tool=FakeTool(),
+        arguments={"value": "hello"},
+        trace_metadata={"trace_id": "trace-failure"},
+    )
+
+    assert result.ok is True
+    assert result.data == {"echoed": "hello"}
