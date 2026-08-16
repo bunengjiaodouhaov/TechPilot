@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.harness.tool_runtime import ToolRiskLevel
 from app.repository.ast_service import PythonSymbolKind
@@ -10,7 +10,16 @@ from app.repository.module_structure import PythonModuleStructureService
 class InspectModulesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    query: str = "module structure"
     limit: int = Field(default=20, ge=1, le=100)
+
+    @field_validator("query")
+    @classmethod
+    def query_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("query must not be empty")
+        return normalized
 
 
 class ModuleDependencyMatch(BaseModel):
@@ -43,6 +52,7 @@ class ModuleStructureMatch(BaseModel):
 class InspectModulesOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    query: str = "module structure"
     modules: list[ModuleStructureMatch]
     module_count: int
     python_file_count: int
@@ -53,7 +63,9 @@ class InspectModulesOutput(BaseModel):
 
 class InspectModulesTool:
     name = "inspect_modules"
-    description = "Inspect Python module structure and internal import dependencies."
+    description = (
+        "Search a prebuilt Python module/import/symbol structure snapshot."
+    )
     input_schema = InspectModulesInput
     output_schema = InspectModulesOutput
     risk_level = ToolRiskLevel.READ
@@ -67,7 +79,10 @@ class InspectModulesTool:
         self,
         tool_input: InspectModulesInput,
     ) -> InspectModulesOutput:
-        report = self._service.inspect_repository(limit=tool_input.limit)
+        report = self._service.inspect_repository(
+            query=tool_input.query,
+            limit=tool_input.limit,
+        )
 
         return InspectModulesOutput(
             modules=[

@@ -515,3 +515,99 @@ RepoExplorer
 - Event sink 为 best-effort dependency；trace failure 不能改变业务结果。
 - 当前 `InMemoryAgentEventSink` 仅用于测试 / demo，持久化留到后续真正需要时再决定。
 
+
+### 7.4 Code retrieval / module / static call clues
+
+Day21–25 将 Repo Explorer 的 repository-understanding capability 扩展为：
+
+```text
+Repository question
+        ↓
+RepoExplorer
+        ↓
+ToolRegistry / ToolRuntime
+        ├── search_code_keyword
+        ├── search_code_dense
+        ├── search_code_hybrid
+        ├── inspect_modules
+        └── inspect_calls
+        ↓
+candidate locations / structural clues
+        ↓
+read_file
+        ↓
+authoritative CodeEvidence
+        ↓
+EvidencePack
+```
+
+能力职责：
+
+- Keyword / Dense / Hybrid：回答“哪些代码块可能相关”。
+- `inspect_modules`：回答 Python module、internal import dependency、top-level symbol 的静态结构。
+- `inspect_calls`：回答 function/method 源码中可观察到的 caller/callee call-site clue。
+- `read_file`：重新取得 authoritative repository content。
+- `CodeEvidence`：只承载可回查的 file/symbol/line/snippet provenance。
+
+Static call boundary：
+
+```text
+caller symbol
+    ↓
+AST Call
+    ↓
+Name / Attribute callee expression
+    ↓
+StaticCallClue
+```
+
+`StaticCallClue` 不是完整 runtime call graph。Python 的动态分派、dependency injection、多态、decorator、`getattr`、monkey patch 等不能仅凭 AST 完整恢复，因此系统只提供静态线索，并保留 incomplete/failure 语义。
+
+结构线索和 Retrieval result 都不能直接成为 Evidence；最终仍统一经过 `read_file -> CodeEvidence -> EvidencePack`。P3 继续保持 read-only，不开放 shell、edit、git write 或 Agent control loop。
+
+### Repository Structural Index（Day 27）
+
+Code RAG 的结构能力分为两个阶段：
+
+1. Repository refresh / indexing：
+   - 读取允许范围内的 Python 文件；
+   - AST parse；
+   - 建立 module、internal imports、top-level symbols、static call clues；
+   - 构建 query-time postings。
+
+2. Query-time：
+   - 根据 query 从 structural index 取得少量相关结构候选；
+   - RepoExplorer 做 bounded candidate handling；
+   - 最终必须通过 `read_file` 回查真实源码；
+   - 只有真实源码生成的 `CodeEvidence` 才能进入 `EvidencePack`。
+
+因此 structural index 是定位索引，不是事实来源。事实来源仍然是 repository 中当前允许读取的真实源码。
+
+`.local/` 属于本地 review / diagnostics / backup / evaluation artifacts，不属于 runtime repository corpus，因此由 `RepositoryReadBoundary` 排除。
+
+当前 structural index 为 in-memory full rebuild。该方案已经消除“每个用户 query 都重新扫描并 AST parse 全仓”的错误路径；incremental refresh / persistent index 留给后续规模化阶段。
+
+<!-- DAY29_P3_FINAL_GATE -->
+### P3 final retrieval architecture note (2026-08-16)
+
+P3 uses a two-phase repository design:
+
+1. refresh/index phase:
+   safe repository traversal → AST/symbol extraction → structural snapshot →
+   keyword/dense code chunks and vectors.
+2. query phase:
+   bounded lookup / retrieval → candidate set → authoritative `read_file` →
+   CodeEvidence → EvidencePack.
+
+The architecture deliberately separates **candidate discovery** from **evidence authority**.
+Static module/import/call information assists localization but is not a runtime program graph.
+
+External robustness evaluation showed representation/retrieval quality depends on repository
+shape. A tested policy that dropped oversized whole-class chunks reduced external quality and
+was reverted. Future representation improvements should preserve class-level context while
+using hierarchical or summarized representations rather than deleting it outright.
+
+Repo Explorer remains because it owns evidence handoff, failure/incomplete semantics and
+structural context isolation. Its compression benefit is strongest in module/structure mode;
+Dense/Hybrid external challenges showed no file-compression delta, so universal compression
+must not be claimed.

@@ -332,7 +332,7 @@
 - 使用真实 `AnswerService`、DeepSeek 和生产 Dense Top-5 运行统一复验。
 - 人工审查 answer correctness、Citation support、over-refusal 与运行错误。
 - 在生产 `SYSTEM_PROMPT` 增加输出隔离：`SOURCE_N` 只能作为内部 Citation ID，不得进入用户可见正文。
-- 将 BM25 / RRF / Reranker / hierarchical retrieval 预实验归档到 `.local/day11/diagnostics/`，不作为 P1 生产证据。
+- 将 BM25 / RRF / Reranker / hierarchical retrieval 预实验归档到 `.local/days/day11/diagnostics/`，不作为 P1 生产证据。
 - P1 Gate 从 `CONDITIONAL PASS` 更新为 `FIX`。
 
 ### 关键设计
@@ -792,3 +792,107 @@ final_top_k <= rerank_depth <= 2 * candidate_limit
 
 - Full pytest：PASS
 - `git diff --check`：PASS
+
+---
+
+## Day 25：Python 静态调用关系 / call-chain clues
+
+### 完成
+
+- 新增 `app/repository/call_relationships.py`。
+- 新增 `PythonCallRelationshipService`，基于 Python AST 提取 function/method 内部的静态调用点。
+- 新增 `StaticCallClue(path, caller, callee, line_start, line_end)`。
+- 新增 `app/repository/call_relationship_tool.py` 与只读工具 `inspect_calls`。
+- `inspect_calls` 通过既有 `ToolRuntime` 执行，并传播 truncation / parse / read failure 语义。
+- `RepoExploreRequest.search_mode` 新增 `call`。
+- Repo Explorer 将 static call clue 只作为 candidate location；最终仍通过 `read_file` 回查 authoritative source 并构造 `CodeEvidence`。
+- 新增 service、tool、Repo Explorer call mode focused tests。
+- focused tests：PASS。
+- full pytest：PASS。
+- `git diff --check`：PASS。
+
+### 关键设计
+
+- Day25 输出是 static call clue，不声称是完整 runtime call graph。
+- `ast.Call` 可以确定源码中存在调用表达式，但不能可靠解析 dependency injection、动态绑定、多态、decorator、`getattr`、monkey patch 等运行时分派。
+- caller 使用当前 function/method 的静态 qualified scope；callee 只对可确定的 `Name` / `Attribute` 链做保守表达。
+- module-level call 没有稳定 caller symbol，因此当前不进入 caller/callee clue。
+- call clue 仍是 discovery/structure signal，不直接升级为 Evidence；Evidence 来源规则保持 `read_file -> CodeEvidence`。
+- 不新增 graph database、LangGraph、Agent control loop、shell/edit/git write。
+
+### 验收
+
+- focused repository tests：PASS。
+- Full Test Suite：PASS。
+- `git diff --check`：PASS。
+- 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
+
+### 错误与修复
+
+- 首版交付 patch 的 unified-diff hunk 行数错误，`git apply` 报 `corrupt patch`；重新生成并先通过 `git apply --check` 后再应用。
+- 两个临时 patch 文件一度出现在 repository root，收尾时删除，不进入项目源码。
+
+## Day 27：结构检索索引化
+
+### 完成
+
+- 新增 repository structural snapshot / index。
+- 将 Python module / import / symbol / static call 的 AST 扫描从 query-time 前移到显式 `rebuild()`。
+- query-time 改为基于倒排 postings 的定向结构检索，不再每次全仓重新读取和解析 Python 文件。
+- `inspect_modules` 支持 query-aware lookup。
+- static call relationship 复用同一结构快照。
+- `RepoExplorer` module 模式把用户 query 传入结构检索。
+- `.local/` 从 runtime repository read scope 排除，避免 review、backup、diagnostics 污染 Code RAG corpus。
+- 修正 Day26 evaluator：区分 Evidence 内容命中与 exact symbol 命中，并增加绝对噪声文件数与压缩率指标。
+
+### 评测结果
+
+- Golden cases：12
+- Raw file hit：12/12
+- Explorer file hit：12/12
+- Evidence content hit：12/12
+- Provenance integrity：100%
+- Module raw MRR：Day26 约 0.0137（约第 73 位）→ Day27 1.0（第 1 位）
+- Module Evidence file hit：0 → 1
+- Module Evidence content hit：0 → 1
+- Module file compression ratio：约 80.95%
+- Python corpus：196 → 161，排除 `.local/` 后历史本地文件不再进入 Code RAG corpus
+- Structural snapshot：161 modules / 4490 static call clues
+- Full pytest：PASS
+- `git diff --check`：PASS
+- Starlette/httpx warning：已知非阻塞 warning
+
+### 核心结论
+
+Day24–25 已证明“能够提取代码结构”，但 Day26 评测发现 query-time full-repository AST scan 不具备可扩展性。Day27 将结构解析前移到 repository indexing 阶段，查询时只查已构建的结构索引，再通过 `read_file → CodeEvidence → EvidencePack` 回到真实源码取证。
+
+当前实现仍是 in-memory full rebuild；增量更新、持久化 structural index 属于后续扩展，不是 P3 当前必要范围。
+
+## Day 28：P3 Gate Review
+
+### 结论
+
+P3 Gate = **CONDITIONAL PASS**。
+
+Repo Explorer 决定保留。当前实现已经满足 repository read boundary、Tool Runtime / Registry、CodeEvidence / EvidencePack、Trace、keyword/dense/hybrid Code RAG、module/import/static-call structural retrieval 和 structural index 的功能边界。
+
+Day27 同一套 12-case Golden 达到 raw file hit、Explorer file hit、Evidence content hit、provenance integrity 全部 100%。
+
+未给最终 PASS 的唯一明确条件是评测覆盖：主手册 Day26 计划为 50 条 Code RAG 评测集，当前 reviewed Golden 为 12 条。
+
+Day29 不新增功能，只扩展 Golden 至 50、复跑相同 evaluator、保留和分类失败样本。若扩展评测没有暴露高优先级安全/provenance/架构缺陷，再将 P3 提升为 FINAL PASS。
+
+<!-- DAY29_P3_FINAL_GATE -->
+### Day29 — P3 external robustness + final gate (2026-08-16)
+
+- Ran 50 entirely new TechPilot Code RAG held-out cases:
+  48/50 file, 46/50 strict content, 50/50 provenance.
+- Ran first external repository challenge on Buku:
+  12/15 file, 10/15 content, 15/15 provenance.
+- Diagnosed repository-shape sensitivity and tested an oversized-class chunk guard.
+- Guard passed unit tests but worsened Buku retrieval; reverted exactly.
+- Ran final fresh/no-tuning yewtube challenge:
+  9/10 file, 8/10 content, 10/10 provenance.
+- P3 gate verdict: FINAL PASS WITH KNOWN LIMITATIONS.
+- Repo Explorer: KEEP.
+- No git commit/push/tag/merge/milestone close performed.

@@ -27,7 +27,16 @@ class RepoExploreRequest(BaseModel):
 
     query: str
     task_intent: str
-    search_mode: Literal["code", "symbol", "both", "dense", "keyword", "hybrid", "module"] = "both"
+    search_mode: Literal[
+        "code",
+        "symbol",
+        "both",
+        "dense",
+        "keyword",
+        "hybrid",
+        "module",
+        "call",
+    ] = "both"
     limit: int = Field(default=20, ge=1, le=100)
 
     @field_validator("query", "task_intent")
@@ -154,7 +163,7 @@ class RepoExplorer:
         if request.search_mode == "module":
             result = await self._invoke(
                 tool_name="inspect_modules",
-                arguments={"limit": request.limit},
+                arguments={"query": request.query, "limit": request.limit},
                 issues=issues,
                 trace_metadata=metadata,
             )
@@ -201,6 +210,44 @@ class RepoExplorer:
                                 symbol=symbol["name"],
                             )
                         )
+
+        if request.search_mode == "call":
+            result = await self._invoke(
+                tool_name="inspect_calls",
+                arguments={"query": request.query, "limit": request.limit},
+                issues=issues,
+                trace_metadata=metadata,
+            )
+            if result is not None and result.ok and result.data is not None:
+                parse_error_count = int(result.data.get("parse_error_count", 0))
+                if parse_error_count > 0:
+                    issues.append(
+                        EvidencePackIssue(
+                            kind=EvidenceIssueKind.PARSE_ERROR,
+                            tool_name="inspect_calls",
+                            count=parse_error_count,
+                        )
+                    )
+
+                read_error_count = int(result.data.get("read_error_count", 0))
+                if read_error_count > 0:
+                    issues.append(
+                        EvidencePackIssue(
+                            kind=EvidenceIssueKind.TOOL_FAILURE,
+                            tool_name="inspect_calls",
+                            count=read_error_count,
+                        )
+                    )
+
+                for match in result.data.get("matches", []):
+                    candidates.append(
+                        _EvidenceCandidate(
+                            file_path=match["path"],
+                            line_start=match["line_start"],
+                            line_end=match["line_end"],
+                            symbol=match["caller"],
+                        )
+                    )
 
         candidates = self._dedupe_candidates(candidates)
         if len(candidates) > request.limit:

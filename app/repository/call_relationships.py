@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from app.repository.read_boundary import RepositoryReadBoundary
 from app.repository.structure_index import (
-    InternalModuleDependency,
-    ModuleSearchReport as ModuleStructureReport,
-    ModuleSymbolRef,
+    CallSearchReport as StaticCallReport,
     PythonRepositoryStructureIndex,
-    RepositoryModule,
+    StaticCallClue,
 )
 
 
-class PythonModuleStructureService:
-    """Query a prebuilt Python repository structure snapshot."""
+class PythonCallRelationshipService:
+    """Query static call-site clues from a prebuilt repository structure snapshot."""
 
     def __init__(
         self,
@@ -31,19 +29,17 @@ class PythonModuleStructureService:
     def inspect_repository(
         self,
         *,
-        query: str = "module structure",
+        query: str,
         limit: int = 20,
-    ) -> ModuleStructureReport:
-        return self._index.search_modules(
+    ) -> StaticCallReport:
+        return self._index.search_calls(
             query=query,
             limit=limit,
         )
 
 
 __all__ = [
-    "InternalModuleDependency",
-    "ModuleStructureReport",
-    "ModuleSymbolRef",
-    "PythonModuleStructureService",
-    "RepositoryModule",
+    "PythonCallRelationshipService",
+    "StaticCallClue",
+    "StaticCallReport",
 ]

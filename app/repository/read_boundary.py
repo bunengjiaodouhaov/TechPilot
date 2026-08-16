@@ -6,6 +6,7 @@ from pathlib import Path
 DEFAULT_EXCLUDED_DIRS = frozenset(
     {
         ".git",
+        ".local",
         ".venv",
         "venv",
         "node_modules",

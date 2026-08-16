@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer = PASS；P2 production boundary 继续 Dense-only
+P3：只读 Code RAG / Harness — Day 25 static call relationships = PASS；P2 production boundary 继续 Dense-only
 
 ## 阶段状态
 
@@ -18,8 +18,8 @@ P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer =
 - Day 14：Cross Encoder Reranker、30-case 质量/延迟实验、候选深度边界修正与 ToolContract/ToolResult 字段冻结完成
 - Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
 - P2 高质量 RAG：capability Gate = PASS；production Retrieval = Dense-only
-- P3 Code RAG：Day 19 EvidencePack + minimal Repo Explorer 完成
-- 下一步：Day 20 lightweight AgentEvent trace foundation
+- P3 Code RAG：Day 18–25 repository boundary / Repo Explorer / trace / code retrieval / module structure / static call clues 已完成
+- 下一步：Day 26 Code RAG evaluation set
 
 ## 已完成
 
@@ -125,7 +125,7 @@ P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer =
 - Reranker added latency mean `2318.09 ms` / P95 `2962.15 ms`；total mean `2990.90 ms` / P95 `3684.15 ms`。
 - Evidence ablation：legacy non-empty gate accuracy `0.333333`、unsafe_accepts=4；Evidence Verifier accuracy `1.000000`、unsafe_accepts=0、over_refusals=0。
 - Cost proxy：Generator calls `6 -> 2`，avoided=4；无 token/美元 telemetry，不伪造货币成本。
-- Trace identity 已持久化到 `.local/day16/p2_ablation_summary.json`；baseline SHA `237780b6c8ab507a1d4dc95d94dc21b73eb1552d`，run 时 `git_dirty=true`。
+- Trace identity 已持久化到 `.local/days/day16/p2_ablation_summary.json`；baseline SHA `237780b6c8ab507a1d4dc95d94dc21b73eb1552d`，run 时 `git_dirty=true`。
 - Full suite：234 passed；`git diff --check`：PASS。
 - Day17 已完成 P2 Gate：`PASS`。
 
@@ -174,6 +174,20 @@ P3：只读 Code RAG / Harness — Day 19 EvidencePack + minimal Repo Explorer =
 - Full pytest：PASS。
 - `git diff --check`：PASS。
 - 既有 Starlette TestClient/httpx deprecation warning：非阻塞。
+
+
+### Day 25：Static call relationships
+
+- 新增 `PythonCallRelationshipService` 与 `StaticCallClue`。
+- 新增 read-only `inspect_calls` Tool，并通过 ToolRuntime 统一执行。
+- Repo Explorer 新增 `call` mode。
+- call clue 只作为 static discovery/structure signal；最终证据仍由 authoritative `read_file` 重建为 `CodeEvidence`。
+- 不声称构建完整 runtime call graph；动态绑定/DI/多态等保持明确限制。
+- focused tests：PASS。
+- full pytest：PASS。
+- `git diff --check`：PASS。
+- Starlette TestClient/httpx deprecation warning：既有非阻塞项。
+- 下一步：Day26 建立 Code RAG evaluation set，评测文件命中、结构问题覆盖和 Explorer 上下文噪声。
 
 ## 验收证据
 
@@ -372,3 +386,61 @@ Day 15 主线：Evidence Verifier / Evidence Sufficiency。继续区分 Retrieva
   - `git diff --check`：PASS
 - 当前 working tree 累计包含 Day 19–24 的未提交改动。
 - 下一真实能力缺口：静态调用关系 / 调用链线索。
+
+## Day 27 checkpoint
+
+- P3 Code RAG structural retrieval scalability refactor：PASS
+- Structural snapshot/index：PASS
+- Query-aware module retrieval：PASS
+- Shared static-call snapshot：PASS
+- `.local/` runtime corpus exclusion：PASS
+- Code RAG Golden：12 cases
+- Raw file hit：100%
+- Explorer file hit：100%
+- Evidence content hit：100%
+- Provenance integrity：100%
+- Full pytest：PASS
+- `git diff --check`：PASS
+- 当前工作区仍包含 Day25–27 未提交改动；commit/push 未执行。
+- 下一步：Day28 P3 Gate，基于评测证据判断 P3 是否可以关闭以及哪些限制应进入后续 backlog。
+
+## Day 28 P3 Gate
+
+- Formal result: **CONDITIONAL PASS**
+- Repo Explorer: **KEEP**
+- P3 core implementation / safety / provenance / regression: PASS
+- Day27 12-case Golden:
+  - raw file hit 100%
+  - Explorer file hit 100%
+  - Evidence content hit 100%
+  - provenance integrity 100%
+- Remaining Gate condition: main handbook planned 50 Code RAG evaluation cases; current reviewed Golden has 12.
+- This is an evaluation-coverage gap, not a production-code blocker.
+- Day29: expand reviewed Code RAG Golden 12 → 50 and rerun the same evaluator.
+- No new P3 feature work unless the expanded evaluation exposes a bounded high-priority defect.
+- Do not close P3 milestone until final PASS and explicit user approval.
+
+<!-- DAY29_P3_FINAL_GATE -->
+## P3 Final Gate — Day29 (2026-08-16)
+
+Status: **FINAL PASS WITH KNOWN LIMITATIONS**
+
+Evidence:
+- TechPilot 50 new held-out: 48/50 file hit, 46/50 strict Evidence-content hit,
+  50/50 provenance integrity.
+- Buku first-run external challenge: 12/15 file, 10/15 content, 15/15 provenance.
+- yewtube fresh no-tuning challenge: 9/10 file, 8/10 content, 10/10 provenance.
+- External first-run aggregate: 21/25 file, 18/25 content, 25/25 provenance.
+- Oversized-class chunk guard experiment worsened Buku and was reverted.
+- Repo Explorer decision: KEEP.
+- No remaining safety/provenance/architecture blocker.
+
+Known limitations:
+- semantic localization != complete program semantics;
+- repository organization affects retrieval quality;
+- Hybrid is not universally better than Dense;
+- exact Evidence granularity remains imperfect;
+- static call clues are not a runtime call graph;
+- indexes are in-memory full rebuild v1.
+
+Next: Day30 P4 pre-learning / Thin Agent, Thick Harness.

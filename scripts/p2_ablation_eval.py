@@ -131,7 +131,7 @@ def _evidence_candidate_priority(path: Path) -> int:
 
 
 def discover_evidence_results(search_root: Path = Path(".local")) -> Path:
-    """Find the formal reviewed Evidence Verifier JSONL under `.local/day15*`.
+    """Find the formal reviewed Evidence Verifier JSONL under `.local/days/day15*`.
 
     Day 15 artifacts are local-only and their directory names changed during
     repair work. Discovery therefore scans every existing `day15*` directory
@@ -549,7 +549,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--retrieval-summary",
         type=Path,
-        default=Path(".local/day16/reranker_eval_summary.json"),
+        default=Path(".local/days/day16/reranker_eval_summary.json"),
     )
     parser.add_argument(
         "--evidence-results",
@@ -557,13 +557,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional explicit reviewed Evidence Verifier JSONL. "
-            "By default scan .local/day15* recursively by content."
+            "By default scan .local/days/day15* recursively by content."
         ),
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(".local/day16/p2_ablation_summary.json"),
+        default=Path(".local/days/day16/p2_ablation_summary.json"),
     )
     parser.add_argument(
         "--config-version",
@@ -584,7 +584,7 @@ def main() -> None:
 
     retrieval_summary_path = resolve_existing_path(
         args.retrieval_summary,
-        (".local/day16/*reranker*summary*.json",),
+        (".local/days/day16/*reranker*summary*.json",),
     )
     evidence_results_path = resolve_evidence_results_path(
         args.evidence_results,

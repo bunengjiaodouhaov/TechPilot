@@ -916,12 +916,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(".local/day14/reranker_eval_results.jsonl"),
+        default=Path(".local/days/day14/reranker_eval_results.jsonl"),
     )
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path(".local/day14/reranker_eval_summary.json"),
+        default=Path(".local/days/day14/reranker_eval_summary.json"),
     )
     parser.add_argument("--candidate-limit", type=int, default=20)
     parser.add_argument("--rerank-depth", type=int, default=20)

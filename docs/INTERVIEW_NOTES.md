@@ -492,3 +492,97 @@ Retriever 输出的是候选。最终证据必须重新读取真实源码，并�
 ### Day 24 相比前面的 RAG 迁移新增了什么？
 
 开始利用代码特有的静态结构：Python module、internal import dependency、top-level class/function。结构依赖与文本/向量相关性是不同信号，可用于回答“模块如何组织、谁依赖谁”这类问题。
+
+---
+
+## Day 25：静态调用关系
+
+### 为什么模块 import dependency 还不够，还要 call relationship？
+
+Import 只能说明模块之间存在静态依赖，不能说明某个函数内部具体调用了哪个函数/方法。Call clue 把粒度从 module-level dependency 下沉到 function/method call site，适合回答“这个入口往下调用了什么”“某个 service 如何串到 repository”这类 Code RAG 问题。
+
+### 为什么叫 static call clue，而不叫完整 call graph？
+
+因为 Python 是动态语言。AST 能确定源码里出现了 `foo()`、`obj.bar()` 这样的调用表达式，但不能仅凭源码保证运行时 `obj.bar` 实际绑定到哪个实现。依赖注入、多态、decorator、`getattr`、monkey patch 都可能改变真实运行路径。所以 TechPilot 明确把结果定义为静态调用线索，避免把可观察事实夸大成 runtime truth。
+
+### 为什么 call clue 仍然不能直接作为 Evidence？
+
+它首先是结构化 discovery signal。Repo Explorer 用它定位 call site 后，仍通过 `read_file` 获取真实源码，再按 file path + line range 构造 `CodeEvidence`。这样所有代码检索、symbol、module、call 能力最后共享同一 provenance boundary。
+
+### 为什么没有直接上 graph database？
+
+当前 P3 目标是支持文件/符号级检索和调用线索，不是建设通用程序分析平台。AST + deterministic DTO 已足以回答当前结构问题，也更容易测试。只有 Day26–28 的 Code RAG evaluation 证明多跳关系查询确实被当前实现卡住时，才有依据增加更复杂的 graph/index。
+
+### 面试中一句话怎么讲 Day25？
+
+“我没有把 Python AST 结果包装成完整调用图，而是保守地提取 function/method 内的 caller-callee call-site clues；这些线索只用于定位，最终源码证据仍必须通过统一的 read-only ToolRuntime 和 `read_file -> CodeEvidence` provenance 链路重建。”
+
+## Day 27：为什么不能 query-time 全仓 AST 扫描
+
+### 面试高频问法：你们的 Code RAG 怎么理解模块依赖和调用关系？
+
+第一版先用 Python AST 实现 module/import/symbol/static-call 提取，用于验证结构能力本身。但在 Code RAG Golden evaluation 中发现，如果每个 query 都重新遍历、读取并 parse 整个 repository，这个方案只适合小仓库，不能作为真实检索主路径。
+
+因此后续将 AST parsing 前移到 repository indexing 阶段，生成 structural snapshot 和倒排 postings。用户查询时先查结构索引得到少量相关 module/symbol/call candidates，再通过统一 `read_file → CodeEvidence → EvidencePack` 链路回查真实源码。
+
+### 为什么还要 read_file？
+
+索引只负责定位，可能过期、截断或存在结构解析局限。最终证据必须来自当前真实源码，所以 Retriever/structural index 的输出只是 candidate，不直接作为 authoritative Evidence。
+
+### Day27 用什么数据证明改动有效？
+
+同一套 12-case Golden Set：
+
+- raw file hit：100%
+- Explorer file hit：100%
+- Evidence content hit：100%
+- provenance integrity：100%
+- module 目标文件从约第 73 位提升到第 1 位
+- `.local/` 排除后 Python corpus 从 196 降到 161
+- module Evidence noise 从 41 个 raw noise files 压缩到 7 个，压缩率约 80.95%
+
+### 限制
+
+当前 structural index 是内存 full rebuild，不是持久化增量索引。对更大 monorepo，下一阶段应考虑按 repository snapshot / git diff 做 incremental refresh；当前 P3 不提前引入图数据库或复杂基础设施。
+
+## Day 28：P3 Gate 怎么讲
+
+P3 Gate 没有因为 12 条样本全部命中就直接宣布 PASS。功能、回归、安全和 provenance 已经通过，但主计划要求更大的 Code RAG 评测覆盖，因此先给 CONDITIONAL PASS。
+
+这体现两个原则：
+
+1. 测试全绿不等于 Gate 自动通过；
+2. 小 Golden 的 100% 不能被包装成系统在真实仓库问题上的 100% 准确率。
+
+Repo Explorer 被保留，不是因为“更 Agent”，而是因为它有独立工程价值：隔离搜索噪声、统一 authoritative `read_file` 回查、构建 EvidencePack，并显式传播失败和 incomplete。
+
+面试表达：
+
+“P3 的 12-case 开发集最终实现了 file/Evidence/provenance 100% 命中，但我没有把这个数字直接当最终质量结论。Gate 时对照项目计划发现评测覆盖仍不足，所以将 P3 标成 conditional pass，下一步扩展到更大的人工 reviewed Golden，再决定最终关闭。这避免了在很小开发集上过拟合或夸大指标。”
+
+<!-- DAY29_P3_FINAL_GATE -->
+### P3 interview story — final (2026-08-16)
+
+**Problem:** Same-repository Code RAG benchmarks can overstate generalization.
+
+**What I did:** I froze 50 new TechPilot held-out cases, then evaluated two unfamiliar real
+Python repositories with behavior-oriented queries that did not reveal expected symbols/paths.
+
+**Results:**
+- TechPilot: 48/50 file, 46/50 strict Evidence-content, 50/50 provenance.
+- Buku first run: 12/15 file, 10/15 content, 15/15 provenance.
+- yewtube fresh no-tuning: 9/10 file, 8/10 content, 10/10 provenance.
+
+**What evaluation found:** Repository structure matters, exact Evidence granularity is harder
+than file localization, and Hybrid is not automatically better than Dense.
+
+**Failed experiment:** I hypothesized very large class chunks acted as semantic magnets.
+A size guard passed tests but worsened external retrieval, so I reverted it instead of keeping
+a plausible-looking change.
+
+**Capability wording:** TechPilot provides evidence-grounded semantic code localization and
+structural repository understanding through lexical+dense retrieval, AST/module/import/static
+call clues and authoritative source re-reading. It does not claim complete control-flow,
+data-flow or runtime program semantics.
+
+**Key phrase:** `candidate != Evidence; index locates, source verifies.`

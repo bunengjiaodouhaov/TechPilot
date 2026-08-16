@@ -595,7 +595,7 @@ Hybrid             Recall@5=0.766667 MRR@5=0.588333 MISS=7
 Hybrid+Reranker    Recall@5=0.866667 MRR@5=0.766667 MISS=4
 ```
 
-结果文件保存在 `.local/day14/`。
+结果文件保存在 `.local/days/day14/`。
 
 正式 Golden integrity：
 
@@ -785,7 +785,7 @@ prompt_version: evidence-verifier-v2
 ```bash
 python -m scripts.p2_ablation_eval --evidence-results eval/evidence_verifier_results.jsonl
 ```
-输出 `.local/day16/p2_ablation_summary.json`。Trace identity 位于 JSON 的 `trace` 对象。
+输出 `.local/days/day16/p2_ablation_summary.json`。Trace identity 位于 JSON 的 `trace` 对象。
 
 最终回归：
 ```bash
