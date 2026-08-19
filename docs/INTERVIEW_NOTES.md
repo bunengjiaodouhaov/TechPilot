@@ -586,3 +586,107 @@ call clues and authoritative source re-reading. It does not claim complete contr
 data-flow or runtime program semantics.
 
 **Key phrase:** `candidate != Evidence; index locates, source verifies.`
+
+<!-- DAY31_33_P4_INTERVIEW_START -->
+## P4 Day31–33 Interview Notes
+
+### 1. 你怎么证明这不是固定 Workflow？
+
+真实双机制任务要求同时解释 `RepoExplorer` 和 `ToolRuntime`。
+
+Agent 第一轮先取得 `RepoExplorer` Evidence；第二轮看到当前 Evidence 仍不能覆盖 ToolRuntime permission/timeout 机制后，运行时动态选择了新的 `ToolRuntime` research action，最终 2 steps 完成。
+
+第二步不是设计时固定路径，而是由当前 Evidence gap 决定。
+
+### 2. 为什么后来不用 Planner / Verifier / Action Selector 三个 LLM？
+
+这三个角色都有大量重叠的语义判断：理解当前任务、判断 Evidence 缺口、决定下一步。
+
+主路径收敛为一个 Unified Reasoner，减少：
+
+- 多次 LLM call；
+- 多个 prompt 对 State 的不一致解释；
+- 不必要的组件边界。
+
+但 schema / permission / timeout / hard termination 等确定性职责没有交给 Unified Reasoner，而是继续留在 Harness。
+
+面试表达：
+
+> 我没有把所有逻辑都交给一个 LLM。我只把重叠的语义决策合并，硬约束仍然由 deterministic Harness 管。
+
+### 3. 为什么不是所有任务都用最大模型？
+
+Day33 将执行分成：
+
+```text
+Workflow
+Light Agent
+Research Agent
+```
+
+固定操作直接 Workflow，不付 LLM 成本。
+
+聚焦任务使用低自由度 Light Agent：
+
+- Flash；
+- 小 step budget；
+- 明确 symbol 先 deterministic search；
+- 再让模型做必要语义判断。
+
+复杂、多机制任务才给 Research Agent 更强模型和更高行动自由度。
+
+核心不是“永远用最强模型”，而是：
+
+> 根据任务复杂度配置足够的智能、行动自由度和预算。
+
+### 4. 讲一个真实 Agent failure analysis
+
+Light Agent 研究 ToolRuntime timeout 时已经命中正确文件，但仍达到 max steps。
+
+最初怀疑 Flash 不够强。通过受控实验逐层排除：
+
+1. 固定 Evidence 比较 Flash / Pro；
+2. 固定第一次 action；
+3. 抓真实第二轮 prompt；
+4. identical prompt 多次重放；
+5. 检查关键 supporting span 在实际 context 中的位置。
+
+最后发现不是模型不会，也不是搜索不到，而是 Evidence 用固定 prefix 截断：
+
+```text
+wait_for / timeout_seconds 在 2200 chars 内
+ToolErrorCode.TIMEOUT 在约 2249 chars
+```
+
+模型看不到完整 timeout-result handling，所以合理地继续检索。
+
+在不增加 token、不升级模型的情况下，改成 query-focused Evidence window 后任务完成，step `2 → 1`，该次实验 latency 约 `3237ms → 1644ms`。
+
+面试价值：
+
+> Agent 失败不能一律归因于模型。需要区分 routing、tool selection、retrieval、Evidence materialization、decision context 和 control budget，并通过 trace + controlled A/B 定位。
+
+### 5. 为什么 Day33 后新增 Decision Context Coverage？
+
+因为：
+
+```text
+Source Coverage = 1
+```
+
+只说明找到了正确文件。
+
+如果实际喂给模型的窗口没有关键事实，模型仍然无法 grounded completion。
+
+所以分开评估：
+
+- source coverage；
+- decision-context coverage；
+- grounded completion。
+
+这能避免用“检索命中正确 source”掩盖真正的 context engineering failure。
+
+### 一句话架构表达
+
+> Router 决定任务值得花多少智能和预算；Reasoner 根据当前 Evidence 决定下一步想做什么；Harness 决定能不能安全执行；Evidence 决定事实；Evaluation 判断系统是否真的有效。
+<!-- DAY31_33_P4_INTERVIEW_END -->

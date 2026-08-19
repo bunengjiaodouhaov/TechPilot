@@ -896,3 +896,70 @@ Day29 不新增功能，只扩展 Golden 至 50、复跑相同 evaluator、保�
 - P3 gate verdict: FINAL PASS WITH KNOWN LIMITATIONS.
 - Repo Explorer: KEEP.
 - No git commit/push/tag/merge/milestone close performed.
+
+<!-- DAY31_33_P4_DEVLOG_START -->
+## Day31–33 — P4 Research Agent Control → Unified Reasoner → Execution Strategy
+
+### Day31
+
+- 建立 `app/research` 最小 contracts / state / graph / execution / evaluation。
+- bounded termination：completed / max_steps / retry_exhausted / permanent_failure / no_actionable_path。
+- P4 ACT 复用现有 `RepoExplorer + ToolRuntime`，未绕过 P3 Harness。
+- Search result 继续作为 Candidate；真实 Evidence 继续经 `read_file` materialize。
+- 首个真实 Repo research smoke：`ToolRuntime` Evidence PASS。
+- 建立 7-case Golden/failure control matrix：7/7 PASS。
+
+### Day32
+
+- 接入 DeepSeek structured Research decision。
+- 模型非法多-step plan 不静默截断；增加 bounded repair。
+- 修复 capability advertisement 与真实 runtime registry 不一致问题。
+- State 增加 `last_action`，让后续 semantic decision 能看到上一步行为。
+- 将 Planner / Action Selector / Verifier 主路径收敛为 Unified LLM Reasoner。
+- 真实 gap-driven task：
+  - 先取得 `RepoExplorer` Evidence；
+  - 根据 Evidence gap 动态追加 `ToolRuntime`；
+  - 2 steps completed。
+- 增加 deterministic Task Router：
+  - Workflow
+  - Light Agent
+  - Research Agent
+- 12-case routing baseline：12/12 PASS。
+
+### Day33
+
+- 新增 `ExecutionProfile / ExecutionStrategy`：
+  - model tier
+  - max steps / retries
+  - Agent autonomy
+  - Evidence context strategy
+- real mixed workload 首次暴露：Light Agent 命中正确 source 仍因 `max_steps` 失败。
+- 通过 model/context A/B、fixed-evidence A/B、prompt probe 排除“第一次 action 错”和“Flash 随机不稳定”作为主要原因。
+- 定位 root cause：prefix-only Evidence window 在关键 timeout-result evidence 前截断。
+- 新增 query-focused Evidence selection。
+- Controlled A/B：
+  - same Flash
+  - same 2200-char budget
+  - same symbol-first
+  - prefix → failure / 2 steps
+  - query-focused → completed / 1 step
+- Evaluation contract 增加：
+  - `source_coverage`
+  - `decision_context_coverage`
+  - `grounded_completion`
+
+### 当前结论
+
+模型分级不是唯一执行策略变量。
+
+P4 当前把以下四项一起纳入 Execution Strategy：
+
+```text
+model
+control budget
+agent autonomy
+evidence context selection
+```
+
+下一步 Day34 转向 mixed business workload，不继续围绕单一 timeout case 调参。
+<!-- DAY31_33_P4_DEVLOG_END -->

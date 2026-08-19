@@ -611,3 +611,105 @@ Repo Explorer remains because it owns evidence handoff, failure/incomplete seman
 structural context isolation. Its compression benefit is strongest in module/structure mode;
 Dense/Hybrid external challenges showed no file-compression delta, so universal compression
 must not be claimed.
+
+<!-- DAY31_33_P4_ARCH_START -->
+## P4 Research Execution Architecture — Day31–33
+
+Day31–33 后，P4 主路径从早期 `PLAN / ACT / VERIFY` 语义分层收敛为：
+
+```text
+User Task
+   ↓
+Task Router
+   ↓
+Execution Strategy
+   ├─ model tier
+   ├─ step / retry budget
+   ├─ agent autonomy
+   └─ Evidence context strategy
+   ↓
+Unified Semantic Reasoner
+   ├─ current Evidence sufficient?
+   ├─ unresolved gap?
+   └─ next bounded ResearchAction
+   ↓
+Deterministic Harness
+   ├─ ToolRuntime schema / permission / timeout
+   ├─ retry / max_steps / termination
+   ├─ RepositoryReadBoundary
+   └─ Candidate → authoritative Evidence
+   ↓
+EvidencePack
+   └────────────→ Reasoner loop
+```
+
+### 语义与硬约束边界
+
+LLM 可以决定：
+
+- 当前 Evidence 是否足够；
+- 还缺什么；
+- 下一步想使用哪个允许的 capability。
+
+LLM 不决定：
+
+- permission；
+- schema validity；
+- timeout；
+- repository safety；
+- hard max steps / retry budget；
+- Candidate 是否可以直接成为 Evidence。
+
+原则：
+
+> 语义决策集中给 LLM，硬约束集中给 Harness。
+
+### 为什么保留 Unified Reasoner
+
+Day32 实现曾将 Planner / Action Selector / Verifier 分开。最终主路径收敛为一个 Unified Reasoner，避免多个语义 LLM 对同一 State 产生不一致解释，同时减少额外 LLM call。
+
+Day31 deterministic / layered implementation仍保留为 baseline / learning reference，不作为 P4 主 semantic path。
+
+### Execution Strategy 分级
+
+#### Workflow
+
+- fixed execution path；
+- no LLM；
+- no Agent autonomy。
+
+#### Light Agent
+
+- DeepSeek Flash；
+- `max_steps=2`；
+- 单一明确 symbol 时采用 deterministic symbol-first；
+- authoritative Evidence 进入 LLM 前使用 query-focused window；
+- LLM 只承担必要的 semantic sufficiency / gap decision。
+
+#### Research Agent
+
+- DeepSeek Pro；
+- `max_steps=5`；
+- dynamic action selection；
+- 当前仍使用 prefix context baseline，等待 multi-source / conflict / long-Evidence workload 后再决定 context strategy。
+
+### Evidence Context 成为一等架构变量
+
+Day33 证明：
+
+```text
+correct source
+≠
+sufficient decision context
+```
+
+因此 Context 不再只用“最大 token 数”描述，还必须考虑“选哪部分 Evidence”。
+
+P4 evaluation 应明确区分：
+
+- Source Coverage：是否找到了正确权威来源；
+- Decision Context Coverage：当前 LLM 实际可见片段是否覆盖任务所需事实；
+- Grounded Completion：COMPLETE 是否被当前可见 Evidence 支撑。
+
+这与既有 Candidate / Evidence / Trace 边界兼容，不改变 authoritative Evidence 本身；只改变一次 semantic decision 时从 EvidencePack 选择哪部分进入 model context。
+<!-- DAY31_33_P4_ARCH_END -->

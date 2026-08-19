@@ -1,0 +1,62 @@
+[
+  {
+    "case_id": "holdout-open-known-path",
+    "query": "Open app/harness/tool_runtime.py for me.",
+    "expected_route": "workflow"
+  },
+  {
+    "case_id": "holdout-locate-name",
+    "query": "Locate ToolRuntime.",
+    "expected_route": "workflow"
+  },
+  {
+    "case_id": "holdout-tree-colloquial",
+    "query": "Show me the repository tree.",
+    "expected_route": "workflow"
+  },
+  {
+    "case_id": "holdout-cn-open-path",
+    "query": "打开 app/research/contracts.py。",
+    "expected_route": "workflow"
+  },
+  {
+    "case_id": "holdout-walk-through-timeout",
+    "query": "Walk me through timeout handling in ToolRuntime.",
+    "expected_route": "light_agent"
+  },
+  {
+    "case_id": "holdout-evidencepack-role",
+    "query": "What role does EvidencePack play after retrieval?",
+    "expected_route": "light_agent"
+  },
+  {
+    "case_id": "holdout-retry-question",
+    "query": "Can ToolRuntime retry after a timeout?",
+    "expected_route": "light_agent"
+  },
+  {
+    "case_id": "holdout-cn-single",
+    "query": "解释一下 RepoExplorer 的 evidence handoff。",
+    "expected_route": "light_agent"
+  },
+  {
+    "case_id": "holdout-retry-ownership",
+    "query": "Which layer should own retry, LangGraph or ToolRuntime, and why?",
+    "expected_route": "research_agent"
+  },
+  {
+    "case_id": "holdout-doc-code-disagreement",
+    "query": "The docs describe retry one way, but the code appears different. Determine which behavior is actually authoritative.",
+    "expected_route": "research_agent"
+  },
+  {
+    "case_id": "holdout-root-cause",
+    "query": "Trace the root cause of repository exploration returning no evidence even though the symbol exists.",
+    "expected_route": "research_agent"
+  },
+  {
+    "case_id": "holdout-two-security-layers",
+    "query": "Check whether RepositoryReadBoundary and ToolRuntime together prevent unsafe repository reads.",
+    "expected_route": "research_agent"
+  }
+]

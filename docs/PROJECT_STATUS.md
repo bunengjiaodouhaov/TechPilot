@@ -444,3 +444,65 @@ Known limitations:
 - indexes are in-memory full rebuild v1.
 
 Next: Day30 P4 pre-learning / Thin Agent, Thick Harness.
+
+<!-- DAY31_33_P4_STATUS_START -->
+## P4 Day31–33 Checkpoint
+
+P4 Day31–33 已完成第一轮 Research Agent implementation / control / routing / execution-policy 验证。
+
+### 当前状态
+
+- Day31：bounded Research Agent control baseline + real Repo workload = PASS。
+- Day32：Unified LLM Reasoner + real gap-driven loop + Task Router = PASS。
+- Day33：Execution Strategy tiering + query-focused Evidence context experiment = PASS。
+- Day31 control matrix：7/7 PASS。
+- Day32 routing baseline：12/12 PASS。
+- 当前下一步：Day34 mixed real-business workload evaluation。
+
+### 当前分级执行策略
+
+```text
+Workflow
+→ deterministic / no LLM
+
+Light Agent
+→ DeepSeek Flash
+→ max_steps=2
+→ one explicit symbol: deterministic symbol-first
+→ query-focused Evidence window
+
+Research Agent
+→ DeepSeek Pro
+→ max_steps=5
+→ dynamic action selection
+→ prefix context baseline pending multi-source evaluation
+```
+
+### Day33 关键发现
+
+“找到正确 source”不等于“LLM 当前看到的 Evidence 已覆盖问题”。
+
+因此 P4 evaluation 从单一 `evidence_coverage` 进一步区分：
+
+- `source_coverage`
+- `decision_context_coverage`
+- `grounded_completion`
+
+受控实验中，同一个 Flash、同一个 2200-char Evidence budget、同一个 symbol-first，只把 Evidence selection 从 prefix 改为 query-focused：
+
+- prefix：`max_steps`，task failure；
+- query-focused：`completed`，1 step；
+- latency 约 `3237 ms → 1644 ms`。
+
+该结论目前只冻结到 Light Agent；Research Agent 的多-source context strategy 仍待 Day34+ 验证。
+
+### 当前 P4 已知限制
+
+- Router 仍是 heuristic baseline，真实泛化未充分证明。
+- External Source + Repo 联合 research 尚未接入。
+- Research Agent context strategy 尚未在 multi-source / conflict / long Evidence workload 上验证。
+- structured decision repair exhausted 后仍需更完整的 structured failure path。
+- Repository boundary violation 当前仍映射为较宽的 `execution_error`。
+
+未经明确批准，不 commit / push / merge / tag / close milestone。
+<!-- DAY31_33_P4_STATUS_END -->
