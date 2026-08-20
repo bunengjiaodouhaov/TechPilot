@@ -57,6 +57,27 @@ class ResearchAction(BaseModel):
         return normalized
 
 
+class DecisionFailureCode(StrEnum):
+    TIMEOUT = "timeout"
+    RATE_LIMITED = "rate_limited"
+    UPSTREAM_ERROR = "upstream_error"
+    NETWORK_ERROR = "network_error"
+    AUTH_ERROR = "auth_error"
+    REQUEST_ERROR = "request_error"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class ResearchDecisionFailure(BaseModel):
+    """Structured failure emitted by the semantic decision provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: DecisionFailureCode
+    retryable: bool
+    message: str
+    status_code: int | None = None
+
+
 class VerificationResult(BaseModel):
     """Evidence sufficiency result; continuation is a control-layer decision."""
 
@@ -83,6 +104,26 @@ class TerminationReason(StrEnum):
     NO_ACTIONABLE_PATH = "no_actionable_path"
 
 
+
+class ActionExecutionOutcome(BaseModel):
+    """Action-level result visible to semantic reasoning.
+
+    This is distinct from ToolResult because one research action may be a
+    composite capability that invokes several primitive tools.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    capability: str
+    tool_result_present: bool
+    tool_result_ok: bool | None = None
+    evidence_returned_count: int = Field(ge=0)
+    new_evidence_count: int = Field(ge=0)
+    issue_count: int = Field(ge=0)
+    retry_count_after: int = Field(ge=0)
+    termination_reason: TerminationReason | None = None
+
+
 class ResearchContext(TypedDict, total=False):
     """Run-scoped metadata/dependencies that must not pollute ResearchState."""
 
@@ -100,9 +141,11 @@ class ResearchState(_RequiredResearchState, total=False):
     plan: list[ResearchStep]
     current_step: int
 
-    # Day32: needed by the next ACT turn to avoid blind repetition.
+    # Needed by later ACT turns to avoid blind or semantic repetition.
     last_action: ResearchAction | None
+    action_history: list[ResearchAction]
     last_tool_result: ToolResult | None
+    last_action_outcome: ActionExecutionOutcome | None
     evidence_pack: EvidencePack | None
     verification: VerificationResult | None
 
@@ -110,6 +153,12 @@ class ResearchState(_RequiredResearchState, total=False):
     max_steps: int
     retry_count: int
     max_retries: int
+
+    # Consecutive semantic-decision provider failures are a distinct retry
+    # domain from tool/runtime retries.
+    decision_retry_count: int
+    max_decision_retries: int
+    decision_failure: ResearchDecisionFailure | None
 
     termination_reason: TerminationReason | None
     incomplete: bool

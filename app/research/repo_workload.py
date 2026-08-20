@@ -117,3 +117,58 @@ class EvidenceReportFinalizer:
                 + (f" ({item.symbol})" if item.symbol else "")
             )
         return "\n".join(lines)
+
+class DecisionReportFinalizer:
+    """Deliver the semantic decision as a user-facing research result.
+
+    COMPLETE uses the reasoner's evidence-grounded conclusion. Incomplete
+    termination preserves the control reason and unresolved questions. Sources
+    are appended from authoritative EvidencePack paths only.
+    """
+
+    def finalize(self, state: ResearchState) -> str:
+        termination = state["termination_reason"]
+        decision = state.get("decision")
+        verification = state.get("verification")
+        pack = state.get("evidence_pack")
+
+        source_paths: list[str] = []
+        if pack is not None:
+            source_paths = list(
+                dict.fromkeys(item.file_path for item in pack.evidence)
+            )
+
+        if termination is TerminationReason.COMPLETED:
+            conclusion = getattr(decision, "reason", None)
+            if not conclusion:
+                conclusion = "Research completed."
+            lines = [str(conclusion).strip()]
+        else:
+            lines = [f"Research incomplete: {termination.value}"]
+
+            detail = None
+            if verification is not None:
+                detail = verification.reason
+            elif decision is not None:
+                detail = getattr(decision, "reason", None)
+
+            if detail:
+                lines.append(f"Reason: {str(detail).strip()}")
+
+            unresolved = []
+            if verification is not None:
+                unresolved = list(verification.unresolved_questions)
+            elif decision is not None:
+                unresolved = list(
+                    getattr(decision, "unresolved_questions", [])
+                )
+
+            if unresolved:
+                lines.append("Unresolved:")
+                lines.extend(f"- {item}" for item in unresolved)
+
+        if source_paths:
+            lines.append("Sources:")
+            lines.extend(f"- {path}" for path in source_paths)
+
+        return "\n".join(lines)

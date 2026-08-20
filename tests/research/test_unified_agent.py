@@ -147,6 +147,31 @@ async def test_unified_loop_changes_action_from_evidence_gap() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unified_loop_allows_final_semantic_decision_at_step_budget() -> None:
+    reasoner = GapDrivenReasoner()
+    graph = build_unified_research_graph(
+        executor=FakeExecutor(),
+        reasoner=reasoner,
+        finalizer=Finalizer(),
+    )
+
+    result = await graph.ainvoke(
+        {
+            "query": "Explain RepoExplorer and ToolRuntime.",
+            "max_steps": 2,
+            "max_retries": 1,
+        }
+    )
+
+    assert result["termination_reason"] is TerminationReason.COMPLETED
+    assert result["step_count"] == 2
+    assert reasoner.observed_paths[-1] == {
+        "app/repository/repo_explorer.py",
+        "app/harness/tool_runtime.py",
+    }
+
+
+@pytest.mark.asyncio
 async def test_unified_loop_enforces_max_steps_outside_llm() -> None:
     class NeverDone:
         def decide(self, state: dict) -> UnifiedResearchDecision:

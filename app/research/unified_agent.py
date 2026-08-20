@@ -12,14 +12,34 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from app.harness.evidence_pack import EvidencePack
 from app.harness.tool_runtime import ToolErrorCode, ToolResult
 from app.research.contracts import (
+    ActionExecutionOutcome,
+    DecisionFailureCode,
     ResearchAction,
     ResearchContext,
+    ResearchDecisionFailure,
     ResearchState,
     TerminationReason,
     VerificationResult,
 )
-from app.research.decision_llm import ResearchDecisionProvider
+from app.research.decision_llm import (
+    ResearchDecisionProvider,
+    ResearchDecisionProviderError,
+)
 from app.research.execution import ResearchActionExecutor
+
+
+def evidence_source_role(file_path: str) -> str:
+    if file_path.startswith("app/"):
+        return "production"
+    if file_path.startswith("tests/"):
+        return "test"
+    if file_path.startswith("docs/"):
+        return "documentation"
+    if file_path.startswith("scripts/"):
+        return "script"
+    if file_path.startswith("alembic/") or file_path.startswith("migrations/"):
+        return "migration"
+    return "other"
 
 
 class UnifiedDecisionKind(StrEnum):
@@ -49,6 +69,13 @@ class UnifiedResearchDecision(BaseModel):
             raise ValueError(
                 "COMPLETE decision cannot retain unresolved questions"
             )
+        if (
+            self.kind is UnifiedDecisionKind.NO_ACTIONABLE_PATH
+            and not self.unresolved_questions
+        ):
+            raise ValueError(
+                "NO_ACTIONABLE_PATH requires at least one unresolved question"
+            )
         return self
 
 
@@ -71,22 +98,75 @@ You do NOT:
 - control timeout/retry budgets,
 - override max_steps,
 - treat retrieval candidates as authoritative evidence.
+- Distinguish evidence source roles. Production implementation claims about
+  runtime behavior, enforcement, wiring, state mutation, or failure handling
+  require production implementation evidence. Tests may corroborate implementation behavior
+  but must not substitute for production implementation evidence. If tests
+  expose the missing class/function/file, use them as discovery clues and
+  materialize the corresponding production source before COMPLETE.
 
 Decision rules:
 - If current authoritative evidence directly supports every material part of
   the task, return kind="complete".
+- For kind="complete", reason must itself be a concise user-facing,
+  evidence-grounded answer that covers every material user requirement;
+  do not merely say that evidence is sufficient.
 - If evidence is insufficient and an allowed capability can make progress,
   return kind="act" with exactly one ResearchAction.
 - If evidence is insufficient and no allowed capability can make progress,
   return kind="no_actionable_path".
 - Use the previous action and evidence to avoid blindly repeating an
   unsuccessful action with identical arguments.
+- last_tool_result describes only primitive tool execution and may be null
+  after a successfully executed composite capability. Use
+  last_action_outcome plus authoritative evidence to judge whether the
+  previous ACT executed and made progress.
+- Treat previous_verification.unresolved_questions as open semantic
+  obligations from the previous turn.
+- Do not silently drop an open obligation. If new authoritative evidence now
+  resolves it, account for that when deciding; otherwise keep the unresolved
+  question in the next decision.
+- Return kind="complete" only when the current authoritative evidence covers
+  the whole task AND every carried open obligation is now resolved.
+- For tasks that ask whether authoritative sources agree, conflict, or show
+  documentation drift, materializing both sources is NOT sufficient by itself.
+  Compare their concrete claims directly before returning COMPLETE.
+- Treat current-state declarations, implemented behavior, and stated next steps
+  as separate claims. If documentation declares an earlier current state or
+  future next step while another authoritative source already implements that
+  capability, treat this as documentation drift unless the evidence explicitly
+  marks the implementation as inactive, historical, or merely planned.
+- Do not infer consistency merely because both sources mention the same broad
+  project or architecture. The COMPLETE reason must state the actual relation:
+  consistent, conflicting, or documentation drift, and cite the evidence facts
+  that justify that relation.
+- For multi-part tasks, inspect action_history before choosing the next action.
+  Treat it as the record of mechanisms already attempted.
+- Keep checking the ORIGINAL task for uncovered sibling mechanisms. If one named
+  mechanism has already received multiple focused actions while another named
+  mechanism has never been directly queried, prioritize the untouched sibling
+  unless current evidence already covers it.
+- Do not disguise repetition by slightly changing limit, task_intent, or adding
+  nearby keywords while continuing to investigate the same semantic subgoal.
+- Never repeat the exact same repo_explore action arguments unless the previous
+  composite action had a retryable failure and retry_count is greater than 0.
 - Use only capability names explicitly listed in allowed_capabilities.
+- Do not return kind="no_actionable_path" merely because broad or semantic
+  retrieval failed. If ACT budget remains, authoritative evidence already
+  exposes exact repository paths, and no exact-path refinement has yet been
+  attempted, first use the semantic repair opportunity to choose one relevant
+  known source and materialize it with search_mode="path".
+- If authoritative evidence already identifies an exact repository file that
+  is relevant to an unresolved question but the visible snippet lacks the
+  needed detail, prefer materializing that exact known path through an allowed
+  capability before issuing another broad/semantic retrieval for the same
+  objective. Known source refinement should reduce retrieval uncertainty, not
+  restart discovery.
 
 Return exactly one JSON object:
 {
   "kind": "act" | "complete" | "no_actionable_path",
-  "reason": "why this decision is correct",
+  "reason": "for COMPLETE, the user-facing evidence-grounded answer; otherwise, why this decision is correct",
   "unresolved_questions": ["specific missing fact", "..."],
   "action": {
     "tool_name": "allowed capability",
@@ -153,14 +233,22 @@ class UnifiedResearchReasoner:
                     "contract. It has NOT been executed.\n\n"
                     "Invalid JSON:\n"
                     f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+                    "Validation error from the deterministic decision contract:\n"
+                    f"{last_error}\n\n"
+                    "Correct the specific rejected behavior. If an ACT was rejected "
+                    "as a duplicate, choose a materially different action, COMPLETE "
+                    "if the evidence is sufficient, or NO_ACTIONABLE_PATH only when "
+                    "its contract is satisfied.\n\n"
                     f"{self._build_user_prompt(state)}\n\n"
                     "Return one corrected decision JSON."
                 ),
             )
 
-        raise ValueError(
+        raise ResearchDecisionProviderError(
             "LLM returned an invalid unified research decision "
-            "after bounded repair"
+            "after bounded repair",
+            code=DecisionFailureCode.INVALID_RESPONSE,
+            retryable=False,
         ) from last_error
 
     def _validate_decision(
@@ -174,11 +262,59 @@ class UnifiedResearchReasoner:
         ):
             raise ValueError("selected capability is not allowed")
 
+        # RepoExplorer is deterministic over the same repository snapshot.
+        # Repeating the exact same successful/non-retryable action cannot add
+        # new information; reject it as a decision-contract violation so the
+        # bounded repair turn can choose a different evidence gap without
+        # consuming another ACT step. Retryable composite failures are exempt.
+        if (
+            decision.kind is UnifiedDecisionKind.ACT
+            and decision.action is not None
+            and decision.action.tool_name == "repo_explore"
+            and state.get("last_action") is not None
+            and decision.action == state["last_action"]
+            and state.get("retry_count", 0) == 0
+        ):
+            raise ValueError(
+                "exact duplicate repo_explore action is not allowed "
+                "without a retryable prior failure"
+            )
+
         if decision.kind is UnifiedDecisionKind.COMPLETE:
             pack = state.get("evidence_pack")
             if pack is None or not pack.evidence:
                 raise ValueError(
                     "cannot complete without authoritative evidence"
+                )
+
+        if decision.kind is UnifiedDecisionKind.NO_ACTIONABLE_PATH:
+            pack = state.get("evidence_pack")
+            step_count = state.get("step_count", 0)
+            max_steps = state.get("max_steps", 4)
+            can_still_act = step_count < max_steps
+            has_known_sources = bool(
+                pack is not None and pack.evidence
+            )
+            repo_explore_available = "repo_explore" in self._capabilities
+            history = list(state.get("action_history", []))
+            last_action = state.get("last_action")
+            if last_action is not None and (
+                not history or history[-1] != last_action
+            ):
+                history.append(last_action)
+            path_refinement_attempted = any(
+                action.tool_name == "repo_explore"
+                and action.arguments.get("search_mode") == "path"
+                for action in history
+            )
+            if (
+                can_still_act
+                and has_known_sources
+                and repo_explore_available
+                and not path_refinement_attempted
+            ):
+                raise ValueError(
+                    "NO_ACTIONABLE_PATH requires a known-source exact-path refinement"
                 )
 
     def _build_user_prompt(self, state: UnifiedAgentState) -> str:
@@ -189,6 +325,7 @@ class UnifiedResearchReasoner:
             evidence = [
                 {
                     "file_path": item.file_path,
+                    "source_role": evidence_source_role(item.file_path),
                     "symbol": item.symbol,
                     "line_start": item.line_start,
                     "line_end": item.line_end,
@@ -203,6 +340,8 @@ class UnifiedResearchReasoner:
 
         last_action = state.get("last_action")
         last_tool_result = state.get("last_tool_result")
+        last_action_outcome = state.get("last_action_outcome")
+        previous_verification = state.get("verification")
 
         payload = {
             "task": state.get("normalized_task", state["query"]),
@@ -213,6 +352,15 @@ class UnifiedResearchReasoner:
             "last_action": (
                 last_action.model_dump()
                 if last_action is not None
+                else None
+            ),
+            "action_history": [
+                item.model_dump()
+                for item in state.get("action_history", [])[-8:]
+            ],
+            "last_action_outcome": (
+                last_action_outcome.model_dump(mode="json")
+                if last_action_outcome is not None
                 else None
             ),
             "last_tool_result": (
@@ -229,6 +377,17 @@ class UnifiedResearchReasoner:
                     ),
                 }
                 if last_tool_result is not None
+                else None
+            ),
+            "previous_verification": (
+                {
+                    "sufficient": previous_verification.sufficient,
+                    "reason": previous_verification.reason,
+                    "unresolved_questions": (
+                        previous_verification.unresolved_questions
+                    ),
+                }
+                if previous_verification is not None
                 else None
             ),
             "evidence": evidence,
@@ -287,12 +446,57 @@ class AccumulatingActionExecutor:
 
         incoming = updates.get("evidence_pack")
         existing = state.get("evidence_pack")
+
+        existing_count = (
+            len(existing.evidence)
+            if isinstance(existing, EvidencePack)
+            else 0
+        )
+        incoming_count = (
+            len(incoming.evidence)
+            if isinstance(incoming, EvidencePack)
+            else 0
+        )
+        issue_count = (
+            len(incoming.issues)
+            if isinstance(incoming, EvidencePack)
+            else 0
+        )
+        new_evidence_count = 0
+
         if isinstance(incoming, EvidencePack):
-            updates["evidence_pack"] = merge_evidence_packs(
+            merged = merge_evidence_packs(
                 existing=existing,
                 incoming=incoming,
                 state=state,
             )
+            updates["evidence_pack"] = merged
+            new_evidence_count = max(
+                len(merged.evidence) - existing_count,
+                0,
+            )
+
+        primitive_result = updates.get("last_tool_result")
+        tool_result_present = isinstance(primitive_result, ToolResult)
+        tool_result_ok = (
+            primitive_result.ok
+            if tool_result_present
+            else None
+        )
+
+        updates["last_action_outcome"] = ActionExecutionOutcome(
+            capability=action.tool_name,
+            tool_result_present=tool_result_present,
+            tool_result_ok=tool_result_ok,
+            evidence_returned_count=incoming_count,
+            new_evidence_count=new_evidence_count,
+            issue_count=issue_count,
+            retry_count_after=updates.get(
+                "retry_count",
+                state.get("retry_count", 0),
+            ),
+            termination_reason=updates.get("termination_reason"),
+        )
 
         return updates
 
@@ -372,7 +576,14 @@ class UnifiedResearchNodes:
             "max_steps": state.get("max_steps", 4),
             "retry_count": state.get("retry_count", 0),
             "max_retries": state.get("max_retries", 1),
+            "decision_retry_count": state.get("decision_retry_count", 0),
+            "max_decision_retries": state.get(
+                "max_decision_retries",
+                state.get("max_retries", 1),
+            ),
+            "decision_failure": None,
             "last_action": state.get("last_action"),
+            "action_history": list(state.get("action_history", [])),
             "decision": None,
             "termination_reason": None,
             "incomplete": False,
@@ -380,22 +591,80 @@ class UnifiedResearchNodes:
         }
 
     async def decide(self, state: UnifiedAgentState) -> dict:
-        control_reason = deterministic_termination(state)
+        control_reason = deterministic_failure_termination(state)
         if control_reason is not None:
             return {
                 "termination_reason": control_reason,
                 "decision": None,
             }
 
-        decision_or_awaitable = self._reasoner.decide(state)
-        decision = (
-            await decision_or_awaitable
-            if inspect.isawaitable(decision_or_awaitable)
-            else decision_or_awaitable
-        )
+        try:
+            decision_or_awaitable = self._reasoner.decide(state)
+            decision = (
+                await decision_or_awaitable
+                if inspect.isawaitable(decision_or_awaitable)
+                else decision_or_awaitable
+            )
+        except ResearchDecisionProviderError as exc:
+            failure_count = state.get("decision_retry_count", 0) + 1
+            max_decision_retries = state.get(
+                "max_decision_retries",
+                state.get("max_retries", 1),
+            )
+            failure = ResearchDecisionFailure(
+                code=exc.code,
+                retryable=exc.retryable,
+                message=str(exc),
+                status_code=exc.status_code,
+            )
+
+            if exc.retryable and failure_count <= max_decision_retries:
+                return {
+                    "decision": None,
+                    "decision_retry_count": failure_count,
+                    "decision_failure": failure,
+                }
+
+            return {
+                "decision": None,
+                "decision_retry_count": failure_count,
+                "decision_failure": failure,
+                "termination_reason": (
+                    TerminationReason.RETRY_EXHAUSTED
+                    if exc.retryable
+                    else TerminationReason.PERMANENT_FAILURE
+                ),
+            }
+
+        # Provider retry is a separate consecutive-failure budget. One
+        # successful semantic decision resets it without touching tool retry.
+        decision_retry_updates = {
+            "decision_retry_count": 0,
+            "decision_failure": None,
+        }
+
+        # max_steps bounds ACT/tool executions, not semantic inspection.
+        # After the final allowed ACT, the reasoner must still be able to
+        # inspect the newly materialized evidence and COMPLETE or conclude
+        # NO_ACTIONABLE_PATH. Only a request for another ACT is rejected.
+        if (
+            decision.kind is UnifiedDecisionKind.ACT
+            and state.get("step_count", 0) >= state.get("max_steps", 4)
+        ):
+            return {
+                **decision_retry_updates,
+                "decision": decision,
+                "verification": VerificationResult(
+                    sufficient=False,
+                    reason=decision.reason,
+                    unresolved_questions=decision.unresolved_questions,
+                ),
+                "termination_reason": TerminationReason.MAX_STEPS,
+            }
 
         if decision.kind is UnifiedDecisionKind.COMPLETE:
             return {
+                **decision_retry_updates,
                 "decision": decision,
                 "verification": VerificationResult(
                     sufficient=True,
@@ -407,6 +676,7 @@ class UnifiedResearchNodes:
 
         if decision.kind is UnifiedDecisionKind.NO_ACTIONABLE_PATH:
             return {
+                **decision_retry_updates,
                 "decision": decision,
                 "verification": VerificationResult(
                     sufficient=False,
@@ -419,6 +689,7 @@ class UnifiedResearchNodes:
             }
 
         return {
+            **decision_retry_updates,
             "decision": decision,
             "verification": VerificationResult(
                 sufficient=False,
@@ -459,6 +730,10 @@ class UnifiedResearchNodes:
         return {
             **updates,
             "last_action": action,
+            "action_history": [
+                *state.get("action_history", []),
+                action,
+            ],
             "decision": None,
         }
 
@@ -479,11 +754,10 @@ class UnifiedResearchNodes:
         }
 
 
-def deterministic_termination(
+def deterministic_failure_termination(
     state: UnifiedAgentState,
 ) -> TerminationReason | None:
-    if state.get("step_count", 0) >= state.get("max_steps", 4):
-        return TerminationReason.MAX_STEPS
+    """Hard failures that must stop before another semantic decision."""
 
     result: ToolResult | None = state.get("last_tool_result")
     if (
@@ -497,6 +771,15 @@ def deterministic_termination(
         return TerminationReason.RETRY_EXHAUSTED
 
     return None
+
+
+def deterministic_termination(
+    state: UnifiedAgentState,
+) -> TerminationReason | None:
+    if state.get("step_count", 0) >= state.get("max_steps", 4):
+        return TerminationReason.MAX_STEPS
+
+    return deterministic_failure_termination(state)
 
 
 def build_unified_research_graph(
@@ -527,10 +810,15 @@ def build_unified_research_graph(
         lambda state: (
             "finalize"
             if state.get("termination_reason") is not None
-            else "act"
+            else (
+                "act"
+                if state.get("decision") is not None
+                else "retry_decide"
+            )
         ),
         {
             "act": "act",
+            "retry_decide": "decide",
             "finalize": "finalize",
         },
     )

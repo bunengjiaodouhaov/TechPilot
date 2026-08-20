@@ -963,3 +963,189 @@ evidence context selection
 
 下一步 Day34 转向 mixed business workload，不继续围绕单一 timeout case 调参。
 <!-- DAY31_33_P4_DEVLOG_END -->
+
+<!-- DAY34_37_DEV_LOG_START -->
+## Day 34：Mixed Workload / Tiered Strategy / Context Diagnosis
+
+### 完成
+
+- 从 timeout 单题切换到 24-case mixed workload。
+- 比较 Tiered Execution Strategy 与 Always-Large baseline。
+- 统一采集 route / source / decision-context / grounded completion / steps / calls / tokens / latency / cost。
+- 修正 max_steps 语义：最后允许 ACT 后仍可 final semantic decision。
+- 对 Hybrid / candidate limit / selector 做有界诊断，不把实验性 selector 或 aggressive limit 合入 production。
+- 明确 source coverage、decision-context coverage、grounded completion 三层指标。
+
+### 关键结果
+
+- Tiered / Always-Large 总体 pass 都是 9/24。
+- Tiered route correctness 24/24。
+- Light 子集同质量下显著降低 calls/tokens/latency/cost。
+- 不继续把“source 命中”包装成“Agent 已解决问题”。
+
+### 问题与修复
+
+- max_steps 在最后一个 ACT 前抢先终止 → 改为 ACT budget + final semantic decision。
+- Hybrid 提升部分 source recall 但也提高 context/cost → 停止无界 retrieval tuning。
+- candidate_limit=3 降噪但伤 recall → 不 land。
+- offline selector 提升 source coverage 但未稳定提升 grounded completion → 不 land。
+
+### 业务价值
+
+证明执行分层首先是资源策略；同时建立 Agent failure 分层诊断方法。
+
+---
+
+## Day 35：Failure Ownership / Composite Failure / Business Complexity
+
+### 完成
+
+- Provider failure code + retryability contract。
+- bounded decision retry control。
+- composite RepoExplorer failure propagation。
+- action history / previous verification prompt parity。
+- duplicate action guard。
+- bounded semantic repair fail-closed。
+- NO_ACTIONABLE unresolved contract。
+- multi-objective business pressure analysis。
+
+### 问题与修复
+
+1. Provider 内部 retry 会隐藏真实 calls/cost → provider 只分类，control 决定 retry。
+2. Composite EvidencePack 可能隐藏内部 timeout → current-action failure semantics 上送 control。
+3. Profiled prompt 漏新增 state fields → 恢复 prompt payload parity。
+4. duplicate guard 触发后 repair exhaustion 冒裸异常 → 转为 structured INVALID_RESPONSE / PERMANENT_FAILURE。
+5. NO_ACTIONABLE 可在 unresolved=[] 时出现 → 收紧 terminal decision contract。
+
+### 业务价值
+
+把 retry、failure、termination 从 Prompt 约定变成可观测、可预算、可回归的系统 contract。
+
+---
+
+## Day 36：Known Path / UTF-8 / Source Conflict / Noise / Canonical Eval
+
+### 完成
+
+- RepoExplorer `path` mode。
+- RepositoryReadBoundary UTF-8 fixed-sample false-binary 修复。
+- cross-source documentation drift verification contract。
+- realistic noise profile 与 benchmark contamination 分离。
+- full production capability parity canonical runner。
+- candidate-stage / Evidence-stage noise telemetry。
+- `ActionExecutionOutcome`。
+- known-source refinement contract + NO_ACTIONABLE guard。
+- semantic requirement-level success metrics。
+- canonical corpus manifest。
+
+### 关键真实 bug
+
+#### UTF-8
+
+固定 8192-byte sample 截断中文字符，合法文件被误判 binary。
+
+修复 incremental decoder `final=False`。
+
+#### Composite action result
+
+RepoExplorer 成功但 `last_tool_result=None`，Reasoner误判“没有结果”。
+
+新增 `ActionExecutionOutcome` 后 targeted case：
+
+```text
+permanent_failure / 3 ACT / 5 LLM
+→
+completed / 2 ACT / 3 LLM
+```
+
+#### Evaluation leakage
+
+新写的 benchmark-derived regression tests 会携带 expected behavior clue；canonical corpus 排除这些文件，但保留普通 tests/docs/scripts natural noise。
+
+### Final canonical v2
+
+- 234 readable files；
+- 209 Python files；
+- 1489 chunks；
+- 4/6 success；
+- 91.7% avg source coverage；
+- 0 false completion；
+- 0 semantic false positive；
+- 0 benchmark leakage；
+- 0 benchmark exception。
+
+### 保留 failure
+
+- semantic refinement relevance；
+- obligation expansion / goal drift。
+
+### 业务价值
+
+P4 开始能明确回答：系统是“安全失败”还是“错误完成”，以及 failure 发生在哪一层。
+
+---
+
+## Day 37：Real Business Acceptance / Final Delivery / Source Role
+
+### Case 01：Release Readiness
+
+第一版 runner 因 capability schema 漏 `task_intent`，`step_count=0` permanent failure；判定 eval-harness failure，不算 Agent 业务失败。
+
+修复 schema parity 后 V2：
+
+- 5 steps；
+- requirement coverage 1/6；
+- no_actionable；
+- 暴露 multi-obligation decomposition / budget allocation / path misuse。
+
+不为该 case 实现 task-specific planner。
+
+### Case 02：Provider Timeout Incident
+
+#### V1
+
+- 最后一个 step-accounting obligation 上重复相同 action；
+- duplicate guard 拒绝；
+- bounded repair 仍重复；
+- INVALID_RESPONSE → permanent failure。
+
+修复：repair prompt 接收 deterministic validation error。
+
+#### Final synthesis
+
+新增 `DecisionReportFinalizer`：
+
+- completed 输出 user-facing evidence-grounded conclusion + Sources；
+- incomplete 输出 termination + unresolved + Sources。
+
+#### V2
+
+Agent completed，但 retry control 的实现结论主要来自 test file。
+
+判定：
+
+```text
+SOURCE_QUALITY + VERIFIER_ERROR
+→ false completion
+```
+
+#### Source role fix
+
+Evidence prompt 标记 production/test/docs/script。
+
+实现结论必须绑定 production source。
+
+#### V3
+
+不再接受 tests 代替 production implementation。
+
+任务转为 safe `NO_ACTIONABLE_PATH`，但暴露 semantic source selection 错误：被相似 `deepseek_evidence_verifier.py` 吸附并重复 refinement。
+
+### P4 Gate
+
+**PASS WITH KNOWN LIMITATIONS**
+
+不继续为 6/6 写 task-specific heuristic。
+
+下一步 Day38：P5 JD Structured Output。
+<!-- DAY34_37_DEV_LOG_END -->

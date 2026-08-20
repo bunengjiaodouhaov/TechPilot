@@ -690,3 +690,262 @@ Source Coverage = 1
 
 > Router 决定任务值得花多少智能和预算；Reasoner 根据当前 Evidence 决定下一步想做什么；Harness 决定能不能安全执行；Evidence 决定事实；Evaluation 判断系统是否真的有效。
 <!-- DAY31_33_P4_INTERVIEW_END -->
+
+<!-- DAY34_37_INTERVIEW_START -->
+## P4 Day34–37 Interview Notes
+
+### 1. 你们怎么定位 Agent 失败，而不是都归因于模型？
+
+我把失败拆成几个可观测层：
+
+```text
+task understanding
+→ planning / obligation
+→ tool selection / schema
+→ provider/tool failure
+→ retrieval candidate
+→ authoritative Evidence
+→ decision context
+→ verifier
+→ control / termination
+→ final synthesis
+→ evaluation contract
+```
+
+Day33–37 多次证明“正确文件已经找到”仍可能失败，所以不能把所有 failure 简化为 Retriever 或模型能力。
+
+---
+
+### 2. 为什么 Source Coverage 不够？
+
+Source Coverage 只证明目标文件出现。
+
+真实 Agent 还要问：
+
+- 关键 span 是否被 materialize；
+- 是否进入当前 decision context；
+- 是否覆盖用户每个 requirement；
+- final decision 是否真正 grounded。
+
+所以后来分开：
+
+```text
+source coverage
+decision-context coverage
+semantic requirement coverage
+grounded completion
+```
+
+---
+
+### 3. 讲一个典型的 control-state bug
+
+`RepoExplorer` 是 composite capability。
+
+执行成功后：
+
+```text
+last_tool_result = None
+evidence_pack = ...
+```
+
+Reasoner 把 `null` 误解成“上一动作没有结果”，即使 source coverage 已经是 1，仍重复相同 action。
+
+我新增 `ActionExecutionOutcome`，把 primitive ToolResult 和 action-level result 分开。
+
+同一 targeted case：
+
+```text
+permanent failure / 3 ACT / 5 LLM
+→
+completed / 2 ACT / 3 LLM
+```
+
+---
+
+### 4. 为什么 Provider 不自己 Retry？
+
+如果 provider 内部 retry：
+
+- control layer 看不到真实次数；
+- 可能绕过 global retry/cost/time budget；
+- trace 无法解释 amplification。
+
+所以：
+
+> Provider classifies; orchestrator owns retry policy.
+
+Provider 返回：
+
+```text
+failure code + retryable
+```
+
+Control 决定：
+
+```text
+retry / retry exhausted / permanent failure
+```
+
+---
+
+### 5. Composite capability 为什么要传播内部 failure？
+
+RepoExplorer 最后可能仍返回 EvidencePack，但内部 `read_file` 可能 timeout。
+
+Domain result 存在不代表 operational execution 健康。
+
+因此 current-action retryable failure 必须上送 control，同时历史 issue 保留用于审计。
+
+---
+
+### 6. 为什么 max_steps 后还允许一次 Reasoner decision？
+
+`max_steps` 应限制的是昂贵/有副作用的 ACT 次数。
+
+最后一个 ACT 已经拿到 Evidence 后，如果马上 MAX_STEPS，系统连“证据已经足够”都没机会判断。
+
+正确语义：
+
+```text
+N 次 ACT budget
++ 最后一次 final semantic decision
+```
+
+但不允许第 N+1 次 Tool 执行。
+
+---
+
+### 7. 讲一个真实的文件安全 bug
+
+Repository binary check 固定读 8192 bytes。
+
+中文 UTF-8 多字节字符刚好被截断时，strict decode 抛错，合法 Markdown 被误判 binary。
+
+改成 incremental decoder `final=False`，只忽略 sample 尾部 incomplete sequence，仍拒绝 NUL 和真实 malformed UTF-8。
+
+这是“安全机制 false positive”而不是业务解析 bug。
+
+---
+
+### 8. 为什么 exact path 不应该再走 Retrieval？
+
+用户已经给出：
+
+```text
+app/research/unified_agent.py
+```
+
+此时 source uncertainty 已经消失。
+
+直接：
+
+```text
+RepositoryReadBoundary
+→ ToolRuntime
+→ read_file
+→ CodeEvidence
+```
+
+更确定、更便宜，而且仍然保留 permission/provenance/trace。
+
+---
+
+### 9. 为什么 tests 不能替代 production implementation Evidence？
+
+Test 可以证明：
+
+> 这个行为被验证过。
+
+但它不能单独证明：
+
+> 生产逻辑在哪里、如何 enforce。
+
+Day37 的 provider-timeout case 曾经用 test assertions 回答 bounded retry implementation，final answer 看起来正确但 source role 错。
+
+加入 source-role contract 后，该 unsafe COMPLETE 转为 safe NO_ACTIONABLE。
+
+---
+
+### 10. 为什么你们不把最后 2 个失败调成 6/6？
+
+Day36 final canonical 已经：
+
+- 0 false completion；
+- 0 benchmark leakage；
+- 0 benchmark exception；
+- avg source coverage 91.7%。
+
+剩余失败主要是：
+
+- semantic source/query planning；
+- obligation expansion / multi-obligation decomposition。
+
+继续为具体 case 写 path heuristic 会过拟合 benchmark。
+
+我选择记录 limitation 和 trace，进入下一真实业务阶段。
+
+---
+
+### 11. Tiered Agent 的价值是什么？
+
+不是“便宜模型也能赢大模型”。
+
+Day34 24-case 总体质量没有显著拉开。
+
+真正结果是 Light subset 在相同质量下：
+
+- calls 显著降低；
+- tokens 显著降低；
+- latency 显著降低；
+- cost 显著降低。
+
+所以：
+
+> Routing / tiering 是把足够的智能分配给足够复杂的任务，而不是所有任务都最大模型。
+
+---
+
+### 12. Research success 和 Delivery success 为什么要分开？
+
+旧 finalizer 只列 Evidence path。
+
+这对内部 debug 可以，但用户真正需要的是：
+
+```text
+结论
++ 不确定性
++ Sources
+```
+
+Day37 新增 DecisionReportFinalizer。
+
+现在可以单独评：
+
+```text
+research_success
+delivery_success
+```
+
+这避免“内部已经找到证据”被错误当作产品功能完成。
+
+---
+
+### 13. 复杂业务 Case01 为什么失败有价值？
+
+Release-readiness review 有 6 个明确 obligations，但 Research profile 只有 5 ACT steps。
+
+Agent 没有 obligation-aware budget allocation，大量 step 都花在 API entry discovery。
+
+这证明：
+
+> 单机制 Agent 成功并不等于多目标业务 Agent 可用。
+
+该失败会自然成为 P6 任务规划/依赖/优先级设计的真实输入，而不是现在临时堆 planner。
+
+---
+
+### 14. 一句话概括 P4
+
+> 我们不是把 LangGraph 接通就算完成，而是用真实 workload 和 failure injection 把 Agent 拆成语义决策、确定性控制、Evidence、Trace 和 Evaluation 五个边界，并且专门修了 hidden retry、composite action state、false completion、benchmark leakage 和 final delivery 等生产问题。
+<!-- DAY34_37_INTERVIEW_END -->

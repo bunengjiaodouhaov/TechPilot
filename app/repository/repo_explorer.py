@@ -36,6 +36,7 @@ class RepoExploreRequest(BaseModel):
         "hybrid",
         "module",
         "call",
+        "path",
     ] = "both"
     limit: int = Field(default=20, ge=1, le=100)
 
@@ -90,6 +91,60 @@ class RepoExplorer:
 
         issues: list[EvidencePackIssue] = []
         candidates: list[_EvidenceCandidate] = []
+
+        if request.search_mode == "path":
+            result = await self._invoke(
+                tool_name="read_file",
+                arguments={"path": request.query},
+                issues=issues,
+                trace_metadata=metadata,
+            )
+
+            evidence: list[CodeEvidence] = []
+            provenance_integrity = True
+
+            if result is not None and result.ok and result.data is not None:
+                authoritative_path = result.data.get("path")
+                content = result.data.get("content")
+
+                if (
+                    authoritative_path != request.query
+                    or not isinstance(content, str)
+                ):
+                    provenance_integrity = False
+                    issues.append(
+                        EvidencePackIssue(
+                            kind=EvidenceIssueKind.PROVENANCE_MISMATCH,
+                            tool_name="read_file",
+                            file_path=request.query,
+                        )
+                    )
+                else:
+                    lines = content.splitlines()
+                    evidence.append(
+                        CodeEvidence(
+                            repository=self._repository,
+                            file_path=authoritative_path,
+                            symbol=None,
+                            line_start=1,
+                            line_end=max(1, len(lines)),
+                            snippet=content,
+                        )
+                    )
+
+            pack = EvidencePack(
+                query=request.query,
+                task_intent=request.task_intent,
+                evidence=evidence,
+                provenance_integrity=provenance_integrity,
+                incomplete=bool(issues),
+                issues=issues,
+            )
+            self._emit_evidence_handoff(
+                pack=pack,
+                trace_metadata=metadata,
+            )
+            return pack
 
         if request.search_mode in {"symbol", "both"}:
             result = await self._invoke(

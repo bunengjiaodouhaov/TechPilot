@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P3：只读 Code RAG / Harness — Day 25 static call relationships = PASS；P2 production boundary 继续 Dense-only
+P4：Research Agent — Day30–37 = PASS WITH KNOWN LIMITATIONS；下一步 Day38 进入 P5 JD Structured Output / 岗位与项目证据；P2 production boundary 继续 Dense-only
 
 ## 阶段状态
 
@@ -19,7 +19,8 @@ P3：只读 Code RAG / Harness — Day 25 static call relationships = PASS；P2 
 - Day 15：Evidence Verifier、evidence-driven refusal、正式 6-case Evidence Eval 与未来 Tool Schema 冻结完成
 - P2 高质量 RAG：capability Gate = PASS；production Retrieval = Dense-only
 - P3 Code RAG：Day 18–25 repository boundary / Repo Explorer / trace / code retrieval / module structure / static call clues 已完成
-- 下一步：Day 26 Code RAG evaluation set
+- P4 Research Agent：Day30–37 = PASS WITH KNOWN LIMITATIONS
+- 下一步：Day38 P5 JD Structured Output / 岗位与项目证据
 
 ## 已完成
 
@@ -506,3 +507,71 @@ Research Agent
 
 未经明确批准，不 commit / push / merge / tag / close milestone。
 <!-- DAY31_33_P4_STATUS_END -->
+
+<!-- P4-DAY30-37-STATUS-START -->
+## P4 Day30–37：Research Agent — PASS WITH KNOWN LIMITATIONS
+
+P4 最终结论：
+
+**PASS WITH KNOWN LIMITATIONS**
+
+Day30–37 已完成/验证：
+
+- Thin Agent / Thick Harness P4 boundary；
+- LangGraph bounded control；
+- Unified Semantic Reasoner；
+- Task Router + Workflow / Light / Research Execution Strategy；
+- max_steps / retry / permanent failure / no actionable / completed termination；
+- provider failure classification + control-layer bounded retry；
+- RepoExplorer composite action failure propagation；
+- `ActionExecutionOutcome`，分离 primitive ToolResult 与 composite action result；
+- exact known-path authoritative materialization；
+- UTF-8 sample-boundary safe read fix；
+- cross-source documentation-drift verification；
+- realistic-noise / contamination-safe Agent evaluation；
+- full production RepoExplorer capability parity audit；
+- semantic requirement-level success checks；
+- source-role Evidence contract：tests 不能替代 production implementation evidence；
+- bounded repair deterministic validation feedback；
+- `DecisionReportFinalizer` user-facing conclusion + authoritative Sources。
+
+Day36 final canonical v2：
+
+```text
+cases = 6
+success = 4/6 = 66.7%
+avg_source_coverage = 91.7%
+semantic_false_positive_cases = 0
+false_completion = 0
+benchmark_exceptions = 0
+benchmark_leakage_cases = 0
+LLM calls = 21
+tokens = 82624
+agent latency ≈ 93583 ms
+estimated cost ≈ $0.030805
+```
+
+Day37 real-business acceptance：
+
+- complex 6-obligation release-readiness review：FAIL，暴露 multi-obligation decomposition / budget allocation 上限；
+- provider-timeout incident：
+  - 找到并修复 duplicate bounded-repair failure；
+  - user-facing final synthesis 已打通；
+  - 发现 test evidence 替代 production implementation 的 false completion；
+  - source-role contract 将该 unsafe completion 转为 safe `NO_ACTIONABLE_PATH`。
+
+P4 保留的真实 known limitations：
+
+- semantic source/query planning 在同领域相似模块下不稳定；
+- multi-obligation decomposition / budget allocation 不成熟；
+- obligation expansion / goal drift；
+- Research Agent 尚未接入 production FastAPI API composition；
+- External Source + Repository joint research 尚未实现；
+- service-level SSE / request lifetime / concurrency / P95/P99 留到 P7。
+
+下一阶段：
+
+> **Day38 进入 P5：JD Structured Output / 岗位与项目证据。**
+
+P5 复用 P3/P4 Tool / Evidence / Trace / structured failure / evaluation Harness，不另造 Agent runtime。
+<!-- P4-DAY30-37-STATUS-END -->

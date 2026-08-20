@@ -713,3 +713,166 @@ P4 evaluation 应明确区分：
 
 这与既有 Candidate / Evidence / Trace 边界兼容，不改变 authoritative Evidence 本身；只改变一次 semantic decision 时从 EvidencePack 选择哪部分进入 model context。
 <!-- DAY31_33_P4_ARCH_END -->
+
+<!-- P4-DAY34-37-ARCH-START -->
+## P4 Day34–37：Research Agent production-facing contracts
+
+### 1. Final control/data flow
+
+```text
+User Task
+→ Task Router
+→ Execution Profile
+→ Unified Semantic Reasoner
+→ ResearchAction
+→ Deterministic Control / ToolRuntime
+→ RepoExplorer / Tools
+→ Candidate
+→ authoritative materialization
+→ EvidencePack
+→ ActionExecutionOutcome
+→ Reasoner
+→ DecisionReportFinalizer
+```
+
+核心边界：
+
+```text
+semantic decision → LLM
+hard constraint   → Harness
+fact              → authoritative Evidence
+history/debug     → Trace
+quality judgment  → Evaluation
+```
+
+### 2. Action outcome contract
+
+Primitive `ToolResult` 不能代表 composite capability 的业务结果。
+
+`RepoExplorerActionExecutor` 可以成功返回 EvidencePack，同时 `last_tool_result=None`。
+
+因此 Reasoner 读取独立 action-level outcome：
+
+```text
+capability
+tool_result_present
+tool_result_ok
+evidence_returned_count
+new_evidence_count
+issue_count
+retry_count_after
+termination_reason
+```
+
+避免：
+
+```text
+last_tool_result == null
+⇒ previous action had no result
+```
+
+这一错误推断。
+
+### 3. Failure ownership
+
+Provider：
+
+```text
+classify failure
+→ code / retryable / status_code
+```
+
+Control Layer：
+
+```text
+decision_retry_count
+max_decision_retries
+retry / stop
+RETRY_EXHAUSTED
+PERMANENT_FAILURE
+```
+
+Composite capability 必须向 control layer 传播 current-action retryable failure，不能只保留在 domain issue 中。
+
+### 4. Known-path semantics
+
+`search_mode="path"` 只接受 exact repository-relative file path。
+
+```text
+known file
+→ RepositoryReadBoundary
+→ ToolRuntime
+→ read_file
+→ authoritative Evidence
+```
+
+Known path 不做 fuzzy retrieval；read failure 不用相似文件替代。
+
+### 5. Source-role Evidence
+
+Reasoner context 显式标记：
+
+```text
+app/     production
+tests/   test
+docs/    documentation
+scripts/ script
+```
+
+对 implementation claim：
+
+> tests 可 corroborate，但不能替代 production implementation Evidence。
+
+### 6. Termination invariants
+
+- `max_steps` 表示 ACT execution budget；
+- 最后一个 ACT 后允许 final semantic decision；
+- `NO_ACTIONABLE_PATH` 必须仍有 unresolved obligation；
+- duplicate ACT 在无 retry failure 时拒绝；
+- bounded repair exhaustion 结构化终止，不允许 graph crash。
+
+### 7. Delivery
+
+`DecisionReportFinalizer`：
+
+- COMPLETE → evidence-grounded user-facing conclusion + Sources；
+- incomplete → termination / reason / unresolved + Sources。
+
+因此：
+
+```text
+research success != delivery success
+```
+
+### 8. Evaluation boundary
+
+Agent evaluation 不只看 final answer 或 target file：
+
+```text
+task_success
+source_coverage
+decision_context_coverage
+semantic_requirement_coverage
+provenance_integrity
+tool_selection
+control correctness
+termination
+recovery
+LLM calls
+tokens
+latency
+cost
+```
+
+realistic noise 与 benchmark contamination 分离。当前实验直接派生并包含 expected-answer clue 的 regression files 不进入 canonical corpus。
+
+### 9. P4 known architectural limits
+
+- semantic source/query planning；
+- multi-obligation decomposition；
+- obligation expansion；
+- external-source joint research；
+- production API / service-level long-task behavior。
+
+这些属于后续真实业务/产品演进，不在 P4 继续用特例调优。
+<!-- P4-DAY34-37-ARCH-END -->

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from app.harness.evidence_pack import EvidenceIssueKind
 from app.harness.tool_registry import ToolNotFoundError, ToolRegistry
 from app.harness.tool_runtime import ToolErrorCode, ToolResult, ToolRuntime
 from app.repository.repo_explorer import RepoExploreRequest, RepoExplorer
@@ -110,9 +111,27 @@ class RepoExplorerActionExecutor:
             trace_metadata=trace_metadata,
         )
 
+        # RepoExplorer is a composite capability. Its underlying ToolRuntime
+        # failures are represented as EvidencePack issues rather than one
+        # top-level ToolResult. Propagate only retryable failures from THIS
+        # action into the control retry domain. Historical issues remain in the
+        # accumulated EvidencePack for auditability, but a later successful
+        # composite action resets the consecutive retry count.
+        has_retryable_failure = any(
+            issue.kind == EvidenceIssueKind.TOOL_FAILURE
+            and issue.error_code in RETRYABLE_TOOL_ERRORS
+            for issue in pack.issues
+        )
+        previous_retry_count = state.get("retry_count", 0)
+        retry_count = (
+            previous_retry_count + 1
+            if has_retryable_failure
+            else 0
+        )
+
         return {
             "last_tool_result": None,
             "evidence_pack": pack,
             "step_count": state.get("step_count", 0) + 1,
-            "retry_count": 0,
+            "retry_count": retry_count,
         }

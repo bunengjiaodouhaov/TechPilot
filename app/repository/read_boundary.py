@@ -197,7 +197,14 @@ class RepositoryReadBoundary:
             return True
 
         try:
-            sample.decode("utf-8")
+            # The fixed-size binary sample may end in the middle of a valid
+            # multi-byte UTF-8 code point. Decode incrementally with
+            # final=False so an incomplete trailing sequence is buffered,
+            # while malformed bytes inside the sample are still rejected.
+            import codecs
+
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            decoder.decode(sample, final=False)
         except UnicodeDecodeError:
             return True
 

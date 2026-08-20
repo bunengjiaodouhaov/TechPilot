@@ -5,9 +5,24 @@ from typing import Any, Protocol
 
 import httpx
 
+from app.research.contracts import DecisionFailureCode
+
 
 class ResearchDecisionProviderError(RuntimeError):
-    """Raised when the LLM cannot return a valid JSON decision payload."""
+    """Structured provider failure; retry policy remains outside the provider."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: DecisionFailureCode,
+        retryable: bool,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.status_code = status_code
 
 
 class ResearchDecisionProvider(Protocol):
@@ -91,9 +106,38 @@ class DeepSeekResearchDecisionProvider:
                         client=client,
                         payload=payload,
                     )
-        except httpx.HTTPError as exc:
+        except httpx.TimeoutException as exc:
             raise ResearchDecisionProviderError(
-                "DeepSeek research decision request failed"
+                "DeepSeek research decision request timed out",
+                code=DecisionFailureCode.TIMEOUT,
+                retryable=True,
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code == 429:
+                code = DecisionFailureCode.RATE_LIMITED
+                retryable = True
+            elif 500 <= status_code <= 599:
+                code = DecisionFailureCode.UPSTREAM_ERROR
+                retryable = True
+            elif status_code in {401, 403}:
+                code = DecisionFailureCode.AUTH_ERROR
+                retryable = False
+            else:
+                code = DecisionFailureCode.REQUEST_ERROR
+                retryable = False
+
+            raise ResearchDecisionProviderError(
+                "DeepSeek research decision request failed",
+                code=code,
+                retryable=retryable,
+                status_code=status_code,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ResearchDecisionProviderError(
+                "DeepSeek research decision network request failed",
+                code=DecisionFailureCode.NETWORK_ERROR,
+                retryable=True,
             ) from exc
 
         return self._parse_response(response)
@@ -134,5 +178,7 @@ class DeepSeekResearchDecisionProvider:
             json.JSONDecodeError,
         ) as exc:
             raise ResearchDecisionProviderError(
-                "DeepSeek returned an invalid research decision"
+                "DeepSeek returned an invalid research decision",
+                code=DecisionFailureCode.INVALID_RESPONSE,
+                retryable=False,
             ) from exc

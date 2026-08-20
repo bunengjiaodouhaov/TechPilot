@@ -9,7 +9,10 @@ from app.research.task_router import (
     ModelTier,
     RoutingDecision,
 )
-from app.research.unified_agent import UnifiedResearchReasoner
+from app.research.unified_agent import (
+    UnifiedResearchReasoner,
+    evidence_source_role,
+)
 
 
 class ExecutionProfile(BaseModel):
@@ -147,6 +150,7 @@ class ProfiledUnifiedResearchReasoner(UnifiedResearchReasoner):
             evidence = [
                 {
                     "file_path": item.file_path,
+                    "source_role": evidence_source_role(item.file_path),
                     "symbol": item.symbol,
                     "line_start": item.line_start,
                     "line_end": item.line_end,
@@ -165,6 +169,8 @@ class ProfiledUnifiedResearchReasoner(UnifiedResearchReasoner):
 
         last_action = state.get("last_action")
         last_tool_result = state.get("last_tool_result")
+        last_action_outcome = state.get("last_action_outcome")
+        previous_verification = state.get("verification")
 
         payload = {
             "task": state.get("normalized_task", state["query"]),
@@ -194,6 +200,15 @@ class ProfiledUnifiedResearchReasoner(UnifiedResearchReasoner):
                 if last_action is not None
                 else None
             ),
+            "action_history": [
+                item.model_dump()
+                for item in state.get("action_history", [])[-8:]
+            ],
+            "last_action_outcome": (
+                last_action_outcome.model_dump(mode="json")
+                if last_action_outcome is not None
+                else None
+            ),
             "last_tool_result": (
                 {
                     "ok": last_tool_result.ok,
@@ -208,6 +223,17 @@ class ProfiledUnifiedResearchReasoner(UnifiedResearchReasoner):
                     ),
                 }
                 if last_tool_result is not None
+                else None
+            ),
+            "previous_verification": (
+                {
+                    "sufficient": previous_verification.sufficient,
+                    "reason": previous_verification.reason,
+                    "unresolved_questions": (
+                        previous_verification.unresolved_questions
+                    ),
+                }
+                if previous_verification is not None
                 else None
             ),
             "evidence": evidence,
