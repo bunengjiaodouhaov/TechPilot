@@ -201,3 +201,15 @@ runtime errors:        0
 - `docs/RUNBOOK.md`
 - `docs/LEARNING_PROTOCOL.md`
 - `docs/INTERVIEW_NOTES.md`
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Product UI
+
+TechPilot includes a FastAPI-served product interface at `/` for workspace Q&A, evidence inspection, source ingestion, workspace management, and dependency health.
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Then open `http://127.0.0.1:8000/`. API documentation remains available at `/docs`.
+<!-- DAY37_5_PRODUCT_UI_END -->

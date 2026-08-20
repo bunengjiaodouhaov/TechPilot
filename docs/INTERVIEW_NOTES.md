@@ -949,3 +949,23 @@ Agent 没有 obligation-aware budget allocation，大量 step 都花在 API entr
 
 > 我们不是把 LangGraph 接通就算完成，而是用真实 workload 和 failure injection 把 Agent 拆成语义决策、确定性控制、Evidence、Trace 和 Evaluation 五个边界，并且专门修了 hidden retry、composite action state、false completion、benchmark leakage 和 final delivery 等生产问题。
 <!-- DAY34_37_INTERVIEW_END -->
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Day37.5 — Product UI / delivery boundary
+
+**为什么没有直接上 React/Vite？**
+
+当前项目的核心价值在 Python/FastAPI + RAG/Agent Harness，而不是前端框架。Day37.5 选择 FastAPI 直接托管零构建 UI，减少部署面和依赖，同时保留未来拆独立 SPA 的空间。
+
+**如何避免 Demo UI 伪造能力？**
+
+所有可操作功能都落到真实 API；没有 persistent document listing 时只展示 session-local source state；P5 JD backend 尚未存在时入口明确 disabled。UI 不把“将来会有”渲染成“现在已经有”。
+
+**Workspace 为什么补 lifecycle API？**
+
+原先 API 依赖已有 `workspace_id`，但真实用户不应该手工输入数据库 ID。补 `list/create/delete` 后，ID 退回 backend identity，用户只操作 workspace 名称与选择状态。
+
+**为什么删除 Workspace 会 409？**
+
+Workspace 下仍有 active documents 时直接删除会破坏 source lifecycle 语义。先通过 document delete 完成 PostgreSQL soft-delete + best-effort vector cleanup，再允许删除空 Workspace，属于 fail-closed product boundary。
+<!-- DAY37_5_PRODUCT_UI_END -->

@@ -1149,3 +1149,30 @@ Evidence prompt 标记 production/test/docs/script。
 
 下一步 Day38：P5 JD Structured Output。
 <!-- DAY34_37_DEV_LOG_END -->
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Day37.5 — Product UI Foundation
+
+目标：在进入 P5 前，把已有 TechPilot 后端能力变成可演示、可持续扩展的产品界面，同时不制造不存在的 backend capability。
+
+实现：
+
+- 新增 FastAPI 直接托管的 Product UI，无 Node build chain；
+- 真实对接 Q&A、citation、document upload/delete、dependency health；
+- 新增 Workspace `list/create/delete` API 与 service；
+- 去掉 numeric workspace spinner，改为数据库驱动的 create/select/delete manager；
+- Workspace 有 active documents 时拒绝删除并返回 `409`；
+- Evidence panel 改为当前回答上下文；Knowledge Base 改为 source/index context；
+- UI 从 near-black 调整为亮灰蓝高透明度视觉；
+- typography pass：缩小 hero 极端字号，同时提升正文、导航、metadata 的阅读尺寸；
+- 前端代码目录最终命名为 `app/product_ui/`。
+
+验证：
+
+```text
+pytest -q tests/api/test_frontend.py tests/api/test_workspaces_api.py
+git diff --check
+```
+
+Day37.5 不进入 Day38，不修改 P4 Agent control/evidence semantics。
+<!-- DAY37_5_PRODUCT_UI_END -->

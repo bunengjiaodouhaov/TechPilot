@@ -876,3 +876,41 @@ realistic noise 与 benchmark contamination 分离。当前实验直接派生并
 
 这些属于后续真实业务/产品演进，不在 P4 继续用特例调优。
 <!-- P4-DAY34-37-ARCH-END -->
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Product UI boundary (Day37.5)
+
+```text
+Browser
+  ↓
+FastAPI Product UI (`app/product_ui`)
+  ├─ Workspace lifecycle → /workspaces
+  ├─ Grounded Q&A       → /answers
+  ├─ Source ingestion    → /documents/upload
+  ├─ Source deletion     → /documents/{id}
+  └─ Dependency health   → /health/dependencies
+```
+
+Day37.5 的 UI 是 delivery / interaction layer，不是新的 Agent runtime。它不得绕过现有 service、Evidence、permission 或 persistence boundary。
+
+Workspace lifecycle：
+
+```text
+create(name)
+→ PostgreSQL Workspace
+→ database-assigned id
+
+select
+→ browser active workspace state
+→ downstream requests carry workspace_id
+
+delete(workspace)
+→ active document count > 0 ? 409 : delete
+```
+
+删除非空 Workspace 选择 fail-closed，避免数据库 Workspace 被删除后仍存在概念上未清理的 active indexed source。
+
+Knowledge Base 当前没有 persistent listing API，因此 UI 只能将当前浏览器 session 的 upload responses 作为 source list；这是产品能力边界，不以 mock 数据补齐。
+
+前端目录统一为 `app/product_ui/`，替代 Day37.5 迭代期的 `app/web/`。
+<!-- DAY37_5_PRODUCT_UI_END -->

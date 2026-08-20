@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#dbe5f2" />
+  <title>TechPilot — Evidence-grounded technical intelligence</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="ambient ambient-three"></div>
+
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="img">
+            <path d="M8.5 8.2 16 3.8l7.5 4.4v8.7L16 21.3l-7.5-4.4V8.2Z" />
+            <path d="m8.5 16.9 7.5 4.4 7.5-4.4v6.9L16 28.2l-7.5-4.4v-6.9Z" />
+          </svg>
+        </div>
+        <div>
+          <div class="brand-name">TechPilot</div>
+          <div class="brand-kicker">Evidence-first intelligence</div>
+        </div>
+      </div>
+
+      <nav class="nav-stack">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-item active" data-view="research" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H7l-3 3V4Z"/><path d="M8 8h8M8 12h5"/></svg>
+          <span>Ask workspace</span>
+        </button>
+        <button class="nav-item" data-view="knowledge" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 8h7M8 12h7M8 16h4"/></svg>
+          <span>Knowledge base</span>
+        </button>
+
+        <p class="nav-label nav-label-spaced">P5 pipeline</p>
+        <button class="nav-item nav-disabled" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+          <span>JD evidence</span>
+          <span class="mini-tag">Soon</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-signals" aria-label="Product principles">
+        <span>Evidence</span><i></i><span>Control</span><i></i><span>Trace</span>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="system-card" id="systemCard">
+          <div class="system-card-top">
+            <span class="status-dot checking" id="statusDot"></span>
+            <span id="systemStatus">Checking services</span>
+          </div>
+          <p id="systemDetail">FastAPI · PostgreSQL · Qdrant</p>
+        </div>
+        <button class="workspace-button" id="workspaceButton" type="button">
+          <span class="workspace-icon">W</span>
+          <span class="workspace-copy">
+            <span class="workspace-caption">Active workspace</span>
+            <strong id="workspaceButtonValue">Loading…</strong>
+          </span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-stage">
+      <section class="view active" id="researchView" aria-labelledby="researchTitle">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow"><span></span> Evidence-grounded Q&amp;A</div>
+            <h1 id="researchTitle">Ask your technical workspace</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="workspace-chip workspace-chip-button" id="researchWorkspaceButton" type="button"><span>Workspace</span><strong id="researchWorkspace">Loading…</strong></button>
+            <a class="ghost-button" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+            <button class="icon-button" id="clearConversation" type="button" aria-label="Clear conversation" title="Clear conversation">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="chat-scroll" id="chatScroll">
+          <div class="welcome" id="welcomeState">
+            <div class="welcome-orbit" aria-hidden="true">
+              <div class="orbit orbit-one"></div>
+              <div class="orbit orbit-two"></div>
+              <div class="welcome-core">
+                <svg viewBox="0 0 32 32"><path d="M8.5 8.2 16 3.8l7.5 4.4v8.7L16 21.3l-7.5-4.4V8.2Z"/><path d="m8.5 16.9 7.5 4.4 7.5-4.4v6.9L16 28.2l-7.5-4.4v-6.9Z"/></svg>
+              </div>
+            </div>
+            <p class="welcome-kicker">TECHPILOT / WORKSPACE INTELLIGENCE</p>
+            <h2>Ask the system.<br /><span>Inspect the evidence.</span></h2>
+            <p class="welcome-copy">Reason over your own technical material. TechPilot answers from indexed workspace sources and keeps the supporting evidence visible when it exists.</p>
+
+            <div class="prompt-grid" aria-label="Suggested prompts">
+              <button class="prompt-card" type="button" data-prompt="Summarize the architecture described in this workspace and cite the key sources.">
+                <span class="prompt-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h10M4 19h13"/></svg></span>
+                <span><strong>Map the architecture</strong><small>Summarize the system from evidence</small></span>
+                <svg class="prompt-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <button class="prompt-card" type="button" data-prompt="What failure handling behavior is documented in this workspace? Distinguish confirmed facts from missing evidence.">
+                <span class="prompt-icon"><svg viewBox="0 0 24 24"><path d="M12 3 3.5 7.5v5c0 4.6 3.6 7.6 8.5 9 4.9-1.4 8.5-4.4 8.5-9v-5L12 3Z"/><path d="m9 12 2 2 4-5"/></svg></span>
+                <span><strong>Inspect reliability</strong><small>Trace failures and safety boundaries</small></span>
+                <svg class="prompt-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <button class="prompt-card" type="button" data-prompt="Find evidence about retrieval or evidence provenance. What is explicitly supported by the sources?">
+                <span class="prompt-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4M8 11h6M11 8v6"/></svg></span>
+                <span><strong>Find evidence</strong><small>Locate source-backed implementation facts</small></span>
+                <svg class="prompt-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="conversation" id="conversation" aria-live="polite"></div>
+        </div>
+
+        <div class="composer-wrap">
+          <form class="composer" id="askForm">
+            <textarea id="questionInput" rows="1" maxlength="1000" placeholder="Ask a technical question about this workspace…" aria-label="Question"></textarea>
+            <div class="composer-bottom">
+              <div class="composer-meta">
+                <button class="meta-pill meta-workspace-button" id="composerWorkspaceButton" type="button"><span class="meta-dot"></span>Workspace <strong id="composerWorkspace">Loading…</strong></button>
+                <span class="shortcut">Enter to send · Shift + Enter for newline</span>
+              </div>
+              <button class="send-button" id="sendButton" type="submit" aria-label="Send question">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
+              </button>
+            </div>
+          </form>
+          <p class="composer-note">Grounded answers may stay incomplete when authoritative workspace evidence is missing.</p>
+        </div>
+      </section>
+
+      <section class="view" id="knowledgeView" aria-labelledby="knowledgeTitle">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow"><span></span> Workspace knowledge</div>
+            <h1 id="knowledgeTitle">Knowledge base</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="workspace-chip workspace-chip-button" id="knowledgeWorkspaceButton" type="button"><span>Workspace</span><strong id="knowledgeWorkspace">Loading…</strong></button>
+          </div>
+        </header>
+
+        <div class="knowledge-content">
+          <div class="knowledge-intro">
+            <div>
+              <p class="section-kicker">SOURCE LAYER</p>
+              <h2>Give TechPilot material it can actually ground answers in.</h2>
+              <p>PDF and Markdown files move through the existing parser, chunker, persistence, and indexing pipeline. This page only shows source state the current API can prove.</p>
+            </div>
+          </div>
+
+          <div class="knowledge-metrics" aria-label="Knowledge base summary">
+            <article class="metric-card">
+              <span>Sources this session</span>
+              <strong id="uploadedCount">0</strong>
+              <small>browser-session uploads</small>
+            </article>
+            <article class="metric-card">
+              <span>Indexed chunks</span>
+              <strong id="chunkCount">0</strong>
+              <small>from uploads shown below</small>
+            </article>
+            <article class="metric-card metric-scope">
+              <span>Source scope</span>
+              <strong>PDF · MD</strong>
+              <small>persistent listing API not exposed</small>
+            </article>
+          </div>
+
+          <section class="add-source-card" aria-labelledby="addSourceTitle">
+            <div class="add-source-copy">
+              <span class="source-badge">ADD SOURCE</span>
+              <h3 id="addSourceTitle">Index authoritative material</h3>
+              <p>Drop one supported file into the active workspace. TechPilot will parse, chunk, persist, and index it through the real ingestion API.</p>
+              <div class="format-row"><span>PDF</span><span>Markdown</span><span>Workspace-scoped</span></div>
+            </div>
+
+            <input id="fileInput" type="file" accept=".pdf,.md,text/markdown,application/pdf" hidden />
+            <button class="dropzone" id="dropzone" type="button">
+              <span class="dropzone-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 14v5h14v-5"/></svg>
+              </span>
+              <strong>Drop a file here</strong>
+              <span>or click to browse</span>
+              <span class="browse-pill">Choose source</span>
+            </button>
+          </section>
+
+          <div class="upload-progress hidden" id="uploadProgress">
+            <div class="progress-copy">
+              <span>Ingesting into workspace</span>
+              <strong id="uploadFilename">document</strong>
+            </div>
+            <div class="progress-track"><span></span></div>
+          </div>
+
+          <section class="recent-section" aria-labelledby="recentTitle">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">SOURCE LIBRARY</p>
+                <h3 id="recentTitle">Indexed this session</h3>
+              </div>
+              <span class="muted-copy">Select a source to inspect its index details.</span>
+            </div>
+            <div class="empty-uploads" id="emptyUploads">
+              <span class="empty-source-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 9h7M8 13h5"/></svg></span>
+              <strong>No session sources yet</strong>
+              <p>Upload a PDF or Markdown file above. Persistent workspace listing will remain explicit until the backend exposes it.</p>
+            </div>
+            <div class="upload-list" id="uploadList"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <aside class="context-panel" id="contextPanel" aria-label="Current workspace context">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker" id="panelKicker">CONTEXT</p>
+          <h2 id="panelTitle">Evidence</h2>
+        </div>
+        <span class="citation-count" id="panelMeta">0 sources</span>
+      </div>
+
+      <div class="context-mode context-research" id="researchContext">
+        <div class="panel-section evidence-section">
+          <div class="panel-section-title">
+            <span>Answer sources</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z"/><path d="m4 7 8 4 8-4M12 11v10"/></svg>
+          </div>
+          <div class="citation-list" id="citationList"></div>
+        </div>
+        <div class="grounding-note">
+          <span class="grounding-icon">G</span>
+          <p><strong>Grounded in workspace evidence.</strong><br />Sources shown here support the latest answer returned by the backend.</p>
+        </div>
+      </div>
+
+      <div class="context-mode context-knowledge hidden" id="knowledgeContext">
+        <div class="panel-section">
+          <div class="panel-section-title"><span>Active scope</span><span class="panel-mono" id="contextWorkspace">#1</span></div>
+          <div class="context-stat-grid">
+            <div><span>Session sources</span><strong id="contextSourceCount">0</strong></div>
+            <div><span>Session chunks</span><strong id="contextChunkCount">0</strong></div>
+          </div>
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-title"><span>Source details</span><span class="source-detail-status" id="sourceDetailStatus">None selected</span></div>
+          <div class="source-detail-empty" id="sourceDetailEmpty">
+            <p>Select an uploaded source to inspect the exact ingestion result available in this browser session.</p>
+          </div>
+          <article class="source-detail-card hidden" id="sourceDetailCard">
+            <span class="detail-type" id="detailType">DOC</span>
+            <h3 id="detailName">Source</h3>
+            <dl>
+              <div><dt>Document ID</dt><dd id="detailId">—</dd></div>
+              <div><dt>Chunks</dt><dd id="detailChunks">—</dd></div>
+              <div><dt>Status</dt><dd id="detailStatus">—</dd></div>
+              <div><dt>Checksum</dt><dd id="detailChecksum">—</dd></div>
+            </dl>
+          </article>
+        </div>
+        <div class="grounding-note">
+          <span class="grounding-icon">i</span>
+          <p><strong>Session-local source view.</strong><br />TechPilot does not pretend a persistent listing exists before the API exposes one.</p>
+        </div>
+      </div>
+
+      <div class="panel-section panel-health">
+        <div class="panel-section-title">
+          <span>System health</span>
+          <button class="tiny-button" id="refreshHealth" type="button">Refresh</button>
+        </div>
+        <div class="health-list" id="healthList">
+          <div class="health-row"><span>API</span><span class="health-state checking">checking</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="modal-backdrop hidden" id="workspaceModal" role="dialog" aria-modal="true" aria-labelledby="workspaceModalTitle">
+    <div class="modal-card workspace-modal-card">
+      <button class="modal-close" id="closeWorkspaceModal" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+
+      <div class="workspace-modal-header">
+        <div>
+          <p class="section-kicker">WORKSPACE MANAGER</p>
+          <h2 id="workspaceModalTitle">Your workspaces</h2>
+          <p class="modal-copy">Choose a workspace for questions and sources, or create a new one. Workspace IDs stay internal instead of being edited manually.</p>
+        </div>
+        <button class="primary-button compact-primary" id="showCreateWorkspace" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Create
+        </button>
+      </div>
+
+      <div class="workspace-list" id="workspaceList" aria-live="polite">
+        <div class="workspace-loading">Loading workspaces…</div>
+      </div>
+
+      <form class="workspace-create-panel hidden" id="createWorkspaceForm">
+        <div class="workspace-form-copy">
+          <strong>Create workspace</strong>
+          <span>Give it a short name you can recognize later.</span>
+        </div>
+        <label class="field-label" for="workspaceNameInput">Workspace name</label>
+        <input class="text-field" id="workspaceNameInput" type="text" maxlength="255" autocomplete="off" placeholder="e.g. TechPilot architecture" />
+        <div class="modal-actions">
+          <button class="secondary-button" id="cancelCreateWorkspace" type="button">Cancel</button>
+          <button class="primary-button" id="createWorkspace" type="submit">Create workspace</button>
+        </div>
+      </form>
+
+      <div class="workspace-delete-confirm hidden" id="workspaceDeleteConfirm">
+        <div>
+          <strong>Delete <span id="deleteWorkspaceName">workspace</span>?</strong>
+          <p>Deletion is allowed only after active sources are removed. This avoids leaving indexed material detached from its workspace.</p>
+        </div>
+        <div class="workspace-delete-actions">
+          <button class="secondary-button" id="cancelDeleteWorkspace" type="button">Cancel</button>
+          <button class="danger-button" id="confirmDeleteWorkspace" type="button">Delete workspace</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>

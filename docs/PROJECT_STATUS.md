@@ -575,3 +575,32 @@ P4 保留的真实 known limitations：
 
 P5 复用 P3/P4 Tool / Evidence / Trace / structured failure / evaluation Harness，不另造 Agent runtime。
 <!-- P4-DAY30-37-STATUS-END -->
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Day37.5 — Product UI Foundation
+
+**Status: PASS**
+
+在 P4 closeout 与 P5 Day38 之间增加产品界面收尾，不扩展 Agent 能力。
+
+已完成：
+
+- FastAPI-served Product UI：`app/product_ui/`；
+- evidence-grounded workspace Q&A；
+- contextual Evidence panel；
+- PDF / Markdown ingestion UI；
+- session-local source library / ingestion detail；
+- system dependency health；
+- real Workspace list / create / select / delete；
+- non-empty Workspace deletion `409` fail-closed；
+- light gray-blue translucent visual system + desktop typography pass；
+- frontend / workspace API regression tests。
+
+明确未声称：
+
+- persistent document listing API；
+- P5 JD extraction backend；
+- Research Agent production FastAPI composition。
+
+下一步：**Day38 / P5 — JD Structured Output**。
+<!-- DAY37_5_PRODUCT_UI_END -->

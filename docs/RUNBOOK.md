@@ -923,3 +923,39 @@ DIFF_CHECK=PASS
 - 最终 `CodeEvidence` 继续从 `read_file` 权威源码构造；
 - 不提前开放 shell / edit / git-write；
 - 静态 import/call clue 不夸大为完整运行时关系。
+
+<!-- DAY37_5_PRODUCT_UI_START -->
+## Product UI (Day37.5)
+
+启动现有服务：
+
+```bash
+uvicorn app.main:app --reload
+```
+
+访问：
+
+```text
+Product UI: http://127.0.0.1:8000/
+API docs:   http://127.0.0.1:8000/docs
+```
+
+Day37.5 focused verification：
+
+```bash
+pytest -q tests/api/test_frontend.py tests/api/test_workspaces_api.py
+git diff --check
+```
+
+Workspace API smoke：
+
+```text
+GET    /workspaces
+POST   /workspaces
+DELETE /workspaces/{workspace_id}
+```
+
+注意：删除仍有 active documents 的 Workspace 会返回 `409`；先在 Knowledge Base 删除对应 source。
+
+浏览器如果仍显示旧 Day37.5 CSS，执行一次 hard refresh（macOS Chrome/Safari 常用 `Cmd + Shift + R`）。
+<!-- DAY37_5_PRODUCT_UI_END -->
