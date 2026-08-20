@@ -24,6 +24,7 @@ Rules:
    - "cited_source_ids": array of exact SOURCE_N strings
    - "refused": boolean
 11. When refusing, set "cited_source_ids" to an empty array.
+12. SOURCE_N identifiers are internal citation keys. Never include SOURCE_N identifiers in the user-facing "text" field. Put them only in "cited_source_ids".
 """
 
 

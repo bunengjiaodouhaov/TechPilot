@@ -19,28 +19,42 @@
 - Day 3：完成
 - P0：完成
 
-## P1：文档 RAG（Day 4–10）
+## P1：文档 RAG（Day 4–11）
 
 - 文档解析与 Chunk：完成
-- Embedding：完成
-- Dense Retrieval：完成
-- 30 条基础评测集：完成
-- Recall@5、MRR Baseline：完成
-- 引用回答与无答案样本：待开始
+- Embedding / Dense Retrieval：完成
+- 30 条 Retrieval Golden 与 Baseline：完成
+- 可信回答与 Citation：完成
+- 无答案拒答与删除隔离：完成
+- P1 生命周期验证：完成
+- answerable=true 质量复验：完成
 
 ### 当前状态
 
-- Day 4–5：完成
-- Day 6–7：待开始
+- Day 4–10：完成
+- Day 11：完成
+- P1 Gate：`FIX`
+- P1 Milestone：保持未关闭；等待 P2 检索优化后复验
+- 主要阻塞：生产 Dense Top-5 未稳定召回权威证据，导致 answer correctness / citation support 仅 4/7
 
 ## P2：高质量 RAG（Day 12–17）
 
-- BM25
-- RRF Hybrid Retrieval
-- Reranker
-- 无答案拒答
-- 消融实验与回归
-- 冻结首个可投版本
+- BM25：Day 12 完成
+- Dense / BM25 同 Golden 对比：完成
+- RRF Hybrid Retrieval：Day 13 完成
+- Reranker：Day 14 完成
+- Evidence Verifier / Answer production-candidate A/B：Day 15–17 完成
+- 消融实验：Day 16 完成
+- v0.2-rag production boundary：Day 17 冻结（Dense-only）
+
+### 当前状态
+
+- P2 capability Gate：`PASS`
+- Day 12 正式结果：
+  - Dense Recall@5 0.700000 / MRR@5 0.500000
+  - BM25 Recall@5 0.700000 / MRR@5 0.567778
+  - Dense-only hit 4 / BM25-only hit 4 / both miss 5
+- Day 13：RRF Hybrid Retrieval
 
 ## P3：Code RAG（Day 18–28）
 
@@ -50,6 +64,13 @@
 - Code Hybrid Retrieval
 - 文件级引用与调用链
 - Code RAG 评测
+
+### 当前状态
+
+- P3：进行中
+- Day 18：Repository read boundary、minimal Tool Runtime / Registry、四个 read-only repository tools、Python AST / symbol service、CodeEvidence 完成
+- Day 19 下一步：EvidencePack + minimal Repo Explorer
+- v1 继续只读，不开放 edit / shell / git write / worktree
 
 ## P4：技术调研 Agent（Day 31–37）
 

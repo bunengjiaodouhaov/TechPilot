@@ -1,0 +1,606 @@
+[
+  {
+    "case_id": "workflow-read-runtime",
+    "category": "deterministic_workflow",
+    "query": "Read file app/harness/tool_runtime.py and return the file.",
+    "expected_route": "workflow",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_runtime.py"
+    ],
+    "context_requirements": []
+  },
+  {
+    "case_id": "workflow-open-boundary",
+    "category": "deterministic_workflow",
+    "query": "Open file app/repository/read_boundary.py and show the file.",
+    "expected_route": "workflow",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/read_boundary.py"
+    ],
+    "context_requirements": []
+  },
+  {
+    "case_id": "workflow-cn-read-strategy",
+    "category": "deterministic_workflow",
+    "query": "读取文件 app/research/execution_strategy.py 并返回内容。",
+    "expected_route": "workflow",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/research/execution_strategy.py"
+    ],
+    "context_requirements": []
+  },
+  {
+    "case_id": "light-runtime-timeout",
+    "category": "single_mechanism",
+    "query": "How does ToolRuntime enforce timeout handling?",
+    "expected_route": "light_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_runtime.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "runtime-timeout-boundary",
+        "required_markers": [
+          "asyncio.wait_for",
+          "tool.timeout_seconds",
+          "ToolErrorCode.TIMEOUT"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "light-registry-duplicate",
+    "category": "single_mechanism",
+    "query": "How does ToolRegistry reject duplicate tool registration?",
+    "expected_route": "light_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_registry.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "duplicate-registration-guard",
+        "required_markers": [
+          "if tool.name in self._tools",
+          "DuplicateToolError"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "light-evidencepack-provenance",
+    "category": "single_mechanism",
+    "query": "How does EvidencePack represent provenance integrity and evidence issues?",
+    "expected_route": "light_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/evidence_pack.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "evidence-pack-integrity",
+        "required_markers": [
+          "provenance_integrity: bool",
+          "issues: list[EvidencePackIssue]"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-security-boundaries",
+    "category": "multi_mechanism_multi_file",
+    "query": "Check whether RepositoryReadBoundary and ToolRuntime together prevent unsafe repository reads.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/read_boundary.py",
+      "app/harness/tool_runtime.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "repository-path-boundary",
+        "required_markers": [
+          "repository path escapes repository root"
+        ]
+      },
+      {
+        "requirement_id": "runtime-permission-boundary",
+        "required_markers": [
+          "allowed_risk_levels",
+          "ToolErrorCode.PERMISSION_DENIED"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-explorer-runtime-materialization",
+    "category": "multi_mechanism_multi_file",
+    "query": "Explain how RepoExplorer and ToolRuntime cooperate to materialize repository candidates into authoritative evidence.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/repo_explorer.py",
+      "app/harness/tool_runtime.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "explorer-materializes-through-read-file",
+        "required_markers": [
+          "tool_name=\"read_file\"",
+          "authoritative_path"
+        ]
+      },
+      {
+        "requirement_id": "runtime-validates-tool-input",
+        "required_markers": [
+          "tool.input_schema.model_validate",
+          "await asyncio.wait_for"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-registry-explorer-unavailable-tool",
+    "category": "multi_mechanism_multi_file",
+    "query": "Determine how ToolRegistry, RepoExplorer, and EvidencePack represent an unavailable repository tool without inventing evidence.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_registry.py",
+      "app/repository/repo_explorer.py",
+      "app/harness/evidence_pack.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "registry-not-found",
+        "required_markers": [
+          "ToolNotFoundError"
+        ]
+      },
+      {
+        "requirement_id": "explorer-records-unavailable",
+        "required_markers": [
+          "EvidenceIssueKind.TOOL_UNAVAILABLE",
+          "tool_name=tool_name"
+        ]
+      },
+      {
+        "requirement_id": "pack-carries-issues",
+        "required_markers": [
+          "issues: list[EvidencePackIssue]"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-ambiguous-symbol-no-evidence",
+    "category": "ambiguous_repository_research",
+    "query": "A repository symbol exists but exploration returns no evidence. Investigate the root cause across symbol matching and candidate materialization in the current implementation.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/tools.py",
+      "app/repository/repo_explorer.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "exact-symbol-match-behavior",
+        "required_markers": [
+          "symbol.qualified_name.casefold()"
+        ]
+      },
+      {
+        "requirement_id": "candidate-materialization",
+        "required_markers": [
+          "candidates = self._dedupe_candidates(candidates)",
+          "tool_name=\"read_file\""
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-ambiguous-file-missing-from-listing",
+    "category": "ambiguous_repository_research",
+    "query": "A repository file exists on disk but is absent from the readable file listing. Investigate the root cause across path exclusion, symlinks, size, and binary checks.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/read_boundary.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "excluded-directory-check",
+        "required_markers": [
+          "dirname not in self._excluded_dirs"
+        ]
+      },
+      {
+        "requirement_id": "symlink-check",
+        "required_markers": [
+          "candidate.is_symlink()"
+        ]
+      },
+      {
+        "requirement_id": "size-check",
+        "required_markers": [
+          "repository file exceeds maximum size"
+        ]
+      },
+      {
+        "requirement_id": "binary-check",
+        "required_markers": [
+          "binary repository file is not readable"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-ambiguous-empty-evidence-handoff",
+    "category": "ambiguous_repository_research",
+    "query": "Repository search appears to return candidates, but the final evidence handoff is empty. Trace the root cause across search results, read_file materialization, and provenance checks.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/repo_explorer.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "candidate-loop",
+        "required_markers": [
+          "for candidate in candidates"
+        ]
+      },
+      {
+        "requirement_id": "authoritative-path-check",
+        "required_markers": [
+          "authoritative_path != candidate.file_path",
+          "PROVENANCE_MISMATCH"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-insufficient-p99-20-concurrency",
+    "category": "insufficient_evidence",
+    "query": "Verify from current repository evidence the measured P99 latency of the Research Agent at 20 concurrent production requests.",
+    "expected_route": "research_agent",
+    "expected_outcome": "insufficient_evidence",
+    "expected_source_paths": [],
+    "context_requirements": [],
+    "expected_termination_any": [
+      "no_actionable_path",
+      "max_steps"
+    ]
+  },
+  {
+    "case_id": "research-insufficient-seven-day-failure-rate",
+    "category": "insufficient_evidence",
+    "query": "Verify from current repository evidence the measured production failure rate of the Research Agent during a seven-day live deployment.",
+    "expected_route": "research_agent",
+    "expected_outcome": "insufficient_evidence",
+    "expected_source_paths": [],
+    "context_requirements": [],
+    "expected_termination_any": [
+      "no_actionable_path",
+      "max_steps"
+    ]
+  },
+  {
+    "case_id": "research-insufficient-p95-100-concurrency",
+    "category": "insufficient_evidence",
+    "query": "Verify from current repository evidence the measured P95 end-to-end latency of 100 concurrent repository research requests in production.",
+    "expected_route": "research_agent",
+    "expected_outcome": "insufficient_evidence",
+    "expected_source_paths": [],
+    "context_requirements": [],
+    "expected_termination_any": [
+      "no_actionable_path",
+      "max_steps"
+    ]
+  },
+  {
+    "case_id": "research-conflict-status-vs-day33",
+    "category": "source_conflict_documentation_drift",
+    "query": "The repository status documentation says the project is still at P3 Day25, but the implementation contains a Day33 execution strategy. Verify the documentation against the source and identify the drift.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "docs/PROJECT_STATUS.md",
+      "app/research/execution_strategy.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "status-day25",
+        "required_markers": [
+          "P3：只读 Code RAG / Harness — Day 25",
+          "下一步：Day 26 Code RAG evaluation set"
+        ]
+      },
+      {
+        "requirement_id": "strategy-day33",
+        "required_markers": [
+          "Day33 final execution strategy",
+          "EvidenceContextStrategy.QUERY_FOCUSED"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-conflict-adr-retry-vs-implementation",
+    "category": "source_conflict_documentation_drift",
+    "query": "The ADR says Tool Runtime is responsible for limited retry, while the current implementation may separate timeout detection from Research Agent retry accounting. Cross-check the documentation and source and determine the actual behavior.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "docs/adr/ADR-001-agent-runtime.md",
+      "app/harness/tool_runtime.py",
+      "app/research/execution.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "adr-limited-retry",
+        "required_markers": [
+          "有限重试"
+        ]
+      },
+      {
+        "requirement_id": "runtime-single-call-timeout",
+        "required_markers": [
+          "await asyncio.wait_for",
+          "ToolErrorCode.TIMEOUT"
+        ]
+      },
+      {
+        "requirement_id": "executor-retry-accounting",
+        "required_markers": [
+          "RETRYABLE_TOOL_ERRORS",
+          "previous_retry_count + 1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-conflict-status-vs-day32-router",
+    "category": "source_conflict_documentation_drift",
+    "query": "PROJECT_STATUS says the next step is Day 26 Code RAG evaluation, while the repository already contains a Day32 task router. Verify the documentation against the implementation and identify the drift.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "docs/PROJECT_STATUS.md",
+      "app/research/task_router.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "status-next-day26",
+        "required_markers": [
+          "下一步：Day 26 Code RAG evaluation set"
+        ]
+      },
+      {
+        "requirement_id": "router-day32",
+        "required_markers": [
+          "Transparent Day32 baseline"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-context-trace-propagation",
+    "category": "long_evidence_context_pressure",
+    "query": "Across ToolRuntime and RepoExplorer, explain how trace metadata and parent event relationships propagate from repository research actions through tool execution to the evidence handoff.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_runtime.py",
+      "app/repository/repo_explorer.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "runtime-parent-event",
+        "required_markers": [
+          "parent_event_id",
+          "trace_metadata"
+        ]
+      },
+      {
+        "requirement_id": "explorer-evidence-handoff",
+        "required_markers": [
+          "AgentEventType.EVIDENCE_HANDOFF",
+          "parent_event_id"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-context-read-boundary-safeguards",
+    "category": "long_evidence_context_pressure",
+    "query": "Across RepositoryReadBoundary safeguards, explain how root escape, excluded paths, oversize files, and binary files are rejected before reading.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/read_boundary.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "root-escape",
+        "required_markers": [
+          "repository path escapes repository root"
+        ]
+      },
+      {
+        "requirement_id": "excluded-path",
+        "required_markers": [
+          "repository path is excluded"
+        ]
+      },
+      {
+        "requirement_id": "oversize-file",
+        "required_markers": [
+          "repository file exceeds maximum size"
+        ]
+      },
+      {
+        "requirement_id": "binary-file",
+        "required_markers": [
+          "binary repository file is not readable"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-context-unified-control",
+    "category": "long_evidence_context_pressure",
+    "query": "Across UnifiedResearchNodes and the unified research graph, explain how evidence accumulation, semantic completion, no-actionable-path, and max-step termination interact.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/research/unified_agent.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "evidence-accumulation",
+        "required_markers": [
+          "merge_evidence_packs"
+        ]
+      },
+      {
+        "requirement_id": "semantic-completion",
+        "required_markers": [
+          "UnifiedDecisionKind.COMPLETE"
+        ]
+      },
+      {
+        "requirement_id": "no-actionable-path",
+        "required_markers": [
+          "UnifiedDecisionKind.NO_ACTIONABLE_PATH"
+        ]
+      },
+      {
+        "requirement_id": "max-step-termination",
+        "required_markers": [
+          "TerminationReason.MAX_STEPS"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "research-recovery-timeout-responsibility",
+    "category": "wrong_first_action_recovery",
+    "query": "Determine how timeout retry responsibility is divided between ToolRuntime and the Research Agent control loop, and explain why both layers exist.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/harness/tool_runtime.py",
+      "app/research/execution.py",
+      "app/research/unified_agent.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "runtime-timeout",
+        "required_markers": [
+          "asyncio.wait_for",
+          "ToolErrorCode.TIMEOUT"
+        ]
+      },
+      {
+        "requirement_id": "retry-counter",
+        "required_markers": [
+          "RETRYABLE_TOOL_ERRORS",
+          "previous_retry_count + 1"
+        ]
+      },
+      {
+        "requirement_id": "retry-termination",
+        "required_markers": [
+          "TerminationReason.RETRY_EXHAUSTED",
+          "max_retries"
+        ]
+      }
+    ],
+    "inject_wrong_first_action": {
+      "tool_name": "repo_explore",
+      "arguments": {
+        "query": "DefinitelyMissingTechPilotSymbol",
+        "task_intent": "Controlled wrong-first-action recovery probe.",
+        "search_mode": "symbol",
+        "limit": 5
+      }
+    }
+  },
+  {
+    "case_id": "research-recovery-evidence-materialization",
+    "category": "wrong_first_action_recovery",
+    "query": "Determine how RepoExplorer turns search candidates into authoritative CodeEvidence and rejects provenance mismatches.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/repository/repo_explorer.py",
+      "app/repository/code_evidence.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "read-file-materialization",
+        "required_markers": [
+          "tool_name=\"read_file\"",
+          "authoritative_path != candidate.file_path"
+        ]
+      },
+      {
+        "requirement_id": "code-evidence-shape",
+        "required_markers": [
+          "class CodeEvidence",
+          "file_path: str",
+          "snippet: str"
+        ]
+      }
+    ],
+    "inject_wrong_first_action": {
+      "tool_name": "repo_explore",
+      "arguments": {
+        "query": "DefinitelyMissingTechPilotSymbol",
+        "task_intent": "Controlled wrong-first-action recovery probe.",
+        "search_mode": "symbol",
+        "limit": 5
+      }
+    }
+  },
+  {
+    "case_id": "research-recovery-router-vs-strategy",
+    "category": "wrong_first_action_recovery",
+    "query": "Compare how HeuristicTaskRouter and DefaultExecutionStrategyPolicy divide responsibility between routing and execution strategy.",
+    "expected_route": "research_agent",
+    "expected_outcome": "completed",
+    "expected_source_paths": [
+      "app/research/task_router.py",
+      "app/research/execution_strategy.py"
+    ],
+    "context_requirements": [
+      {
+        "requirement_id": "router-baseline",
+        "required_markers": [
+          "class HeuristicTaskRouter"
+        ]
+      },
+      {
+        "requirement_id": "strategy-responsibility",
+        "required_markers": [
+          "Routing chooses the workload class",
+          "EvidenceContextStrategy.QUERY_FOCUSED"
+        ]
+      }
+    ],
+    "inject_wrong_first_action": {
+      "tool_name": "repo_explore",
+      "arguments": {
+        "query": "DefinitelyMissingTechPilotSymbol",
+        "task_intent": "Controlled wrong-first-action recovery probe.",
+        "search_mode": "symbol",
+        "limit": 5
+      }
+    }
+  }
+]

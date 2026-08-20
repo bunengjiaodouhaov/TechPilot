@@ -1,0 +1,74 @@
+[
+  {
+    "case_id": "workflow-read-file",
+    "query": "Read file app/harness/tool_runtime.py and return lines 58-90.",
+    "expected_route": "workflow",
+    "expected_model_tier": "none"
+  },
+  {
+    "case_id": "workflow-tree",
+    "query": "List files in app/research as a directory tree.",
+    "expected_route": "workflow",
+    "expected_model_tier": "none"
+  },
+  {
+    "case_id": "workflow-find-symbol",
+    "query": "Find class ToolRuntime in the repository.",
+    "expected_route": "workflow",
+    "expected_model_tier": "none"
+  },
+  {
+    "case_id": "workflow-cn-read",
+    "query": "读取文件 app/research/contracts.py 并显示前 40 行。",
+    "expected_route": "workflow",
+    "expected_model_tier": "none"
+  },
+  {
+    "case_id": "light-single-mechanism",
+    "query": "How does ToolRuntime enforce timeout handling?",
+    "expected_route": "light_agent",
+    "expected_model_tier": "medium"
+  },
+  {
+    "case_id": "light-single-component",
+    "query": "How does RepoExplorer materialize authoritative evidence?",
+    "expected_route": "light_agent",
+    "expected_model_tier": "medium"
+  },
+  {
+    "case_id": "light-location-plus-semantics",
+    "query": "Where is ToolRegistry used and what role does it play?",
+    "expected_route": "light_agent",
+    "expected_model_tier": "medium"
+  },
+  {
+    "case_id": "light-cn-single-mechanism",
+    "query": "ToolRuntime 是怎么处理 timeout 的？",
+    "expected_route": "light_agent",
+    "expected_model_tier": "medium"
+  },
+  {
+    "case_id": "research-two-mechanisms",
+    "query": "Explain both how RepoExplorer materializes evidence and how ToolRuntime enforces permission and timeout boundaries.",
+    "expected_route": "research_agent",
+    "expected_model_tier": "large"
+  },
+  {
+    "case_id": "research-cross-source",
+    "query": "Verify the timeout behavior using both documentation and repository source, and explain any mismatch.",
+    "expected_route": "research_agent",
+    "expected_model_tier": "large"
+  },
+  {
+    "case_id": "research-comparison",
+    "query": "Compare RepoExplorer and ToolRuntime responsibilities and explain the design trade-offs between orchestration and execution.",
+    "expected_route": "research_agent",
+    "expected_model_tier": "large"
+  },
+  {
+    "case_id": "research-cn-conflict",
+    "query": "同时核实文档和源码里关于 retry 的说法；如果存在冲突，解释哪一个更权威。",
+    "expected_route": "research_agent",
+    "expected_model_tier": "large"
+  }
+]

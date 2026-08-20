@@ -1,0 +1,157 @@
+[
+  {
+    "case_id": "tool-runtime-execution-boundary",
+    "category": "golden",
+    "scenario": "repo_research",
+    "query": "How does TechPilot ToolRuntime enforce the execution boundary?",
+    "repo_query": "ToolRuntime",
+    "search_mode": "symbol",
+    "expected_action": "repo_explore",
+    "expected_termination": "completed",
+    "max_steps": 2,
+    "evidence_requirements": [
+      {
+        "requirement_id": "permission-gate",
+        "file_path": "app/harness/tool_runtime.py",
+        "required_terms": [
+          "tool.risk_level not in self._allowed_risk_levels",
+          "ToolErrorCode.PERMISSION_DENIED"
+        ]
+      },
+      {
+        "requirement_id": "input-schema-validation",
+        "file_path": "app/harness/tool_runtime.py",
+        "required_terms": [
+          "tool.input_schema.model_validate(arguments)",
+          "ToolErrorCode.INVALID_INPUT"
+        ]
+      },
+      {
+        "requirement_id": "timeout-boundary",
+        "file_path": "app/harness/tool_runtime.py",
+        "required_terms": [
+          "asyncio.wait_for",
+          "timeout=tool.timeout_seconds",
+          "ToolErrorCode.TIMEOUT"
+        ]
+      },
+      {
+        "requirement_id": "output-schema-validation",
+        "file_path": "app/harness/tool_runtime.py",
+        "required_terms": [
+          "tool.output_schema.model_validate(raw_output)",
+          "ToolErrorCode.INVALID_OUTPUT"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "repository-read-boundary-safety",
+    "category": "golden",
+    "scenario": "repo_research",
+    "query": "How does TechPilot keep repository reads inside a safe deterministic boundary?",
+    "repo_query": "RepositoryReadBoundary",
+    "search_mode": "symbol",
+    "expected_action": "repo_explore",
+    "expected_termination": "completed",
+    "max_steps": 2,
+    "evidence_requirements": [
+      {
+        "requirement_id": "absolute-path-rejection",
+        "file_path": "app/repository/read_boundary.py",
+        "required_terms": [
+          "raw_path.is_absolute()",
+          "absolute paths are not allowed"
+        ]
+      },
+      {
+        "requirement_id": "root-escape-rejection",
+        "file_path": "app/repository/read_boundary.py",
+        "required_terms": [
+          "resolved.relative_to(self._root)",
+          "repository path escapes repository root"
+        ]
+      },
+      {
+        "requirement_id": "excluded-path-rejection",
+        "file_path": "app/repository/read_boundary.py",
+        "required_terms": [
+          "self._is_excluded(relative)",
+          "repository path is excluded"
+        ]
+      },
+      {
+        "requirement_id": "file-size-boundary",
+        "file_path": "app/repository/read_boundary.py",
+        "required_terms": [
+          "size > self._max_file_bytes",
+          "repository file exceeds maximum size"
+        ]
+      },
+      {
+        "requirement_id": "binary-file-rejection",
+        "file_path": "app/repository/read_boundary.py",
+        "required_terms": [
+          "self._looks_binary(candidate)",
+          "binary repository file is not readable"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "missing-repository-evidence",
+    "category": "adversarial",
+    "scenario": "repo_research",
+    "query": "Explain the implementation of a repository mechanism that does not exist.",
+    "repo_query": "DefinitelyMissingMechanismXYZ",
+    "search_mode": "symbol",
+    "expected_action": "repo_explore",
+    "expected_termination": "no_actionable_path",
+    "max_steps": 3,
+    "evidence_requirements": [
+      {
+        "requirement_id": "nonexistent-mechanism-evidence",
+        "file_path": "app/does_not_exist.py",
+        "required_terms": [
+          "DefinitelyMissingMechanismXYZ"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "repository-root-escape",
+    "category": "adversarial",
+    "scenario": "primitive_failure",
+    "failure_kind": "root_escape",
+    "expected_termination": "permanent_failure",
+    "expected_error_code": "execution_error",
+    "max_steps": 3
+  },
+  {
+    "case_id": "malformed-tool-arguments",
+    "category": "adversarial",
+    "scenario": "primitive_failure",
+    "failure_kind": "invalid_input",
+    "expected_termination": "permanent_failure",
+    "expected_error_code": "invalid_input",
+    "max_steps": 3
+  },
+  {
+    "case_id": "timeout-retry-exhaustion",
+    "category": "adversarial",
+    "scenario": "primitive_failure",
+    "failure_kind": "timeout",
+    "expected_termination": "retry_exhausted",
+    "expected_error_code": "timeout",
+    "max_steps": 10,
+    "max_retries": 1
+  },
+  {
+    "case_id": "insufficient-evidence-max-steps",
+    "category": "adversarial",
+    "scenario": "primitive_failure",
+    "failure_kind": "max_steps",
+    "expected_termination": "max_steps",
+    "max_steps": 2
+  }
+]

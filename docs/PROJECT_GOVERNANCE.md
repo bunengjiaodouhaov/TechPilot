@@ -280,3 +280,28 @@
 4. 不与现有文档重复。
 
 默认不再新增文档，也不随意改变固定结构。
+
+<!-- LOCAL_ARTIFACT_LAYOUT_POLICY -->
+## Local artifact layout policy
+
+Repository-root local-only layout:
+
+```text
+TechPilot/
+├── .local/
+│   ├── days/
+│   │   └── dayXX.../   # per-day evals, diagnostics, backups, temporary artifacts
+│   └── reviews/        # day review documents
+├── .pytest_cache/      # pytest-managed cache; sibling of .local, leave untouched
+└── ...
+```
+
+Rules:
+- Any new day-scoped TechPilot artifact MUST go under `.local/days/dayXX/`
+  (or a descriptive sibling such as `.local/days/day15_overlay_backups/`).
+- Do NOT create new top-level `.local/dayXX...` directories.
+- `.local/reviews/` remains separate from `.local/days/`.
+- Repo-root `.pytest_cache/` is pytest-managed and MUST remain outside `.local/`.
+- `.local` is local-only and must not be committed.
+- When code/docs reference a day artifact, use `.local/days/dayXX/...`.
+- Future closeout/evaluation scripts must follow this layout automatically.

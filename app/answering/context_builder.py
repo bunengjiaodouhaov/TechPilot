@@ -70,6 +70,22 @@ class ContextBuilder:
         )
 
     @staticmethod
+    def render_sources(
+        *,
+        sources: Sequence[BuiltContextSource],
+    ) -> str:
+        """Render only already-built sources while preserving source IDs."""
+
+        return "\n\n".join(
+            ContextBuilder._format_source_block(
+                source_id=source.source_id,
+                context=source.context,
+                text=source.included_text,
+            )
+            for source in sources
+        )
+
+    @staticmethod
     def _deduplicate(
         contexts: Sequence[RetrievedContext],
     ) -> list[RetrievedContext]:
@@ -92,6 +108,7 @@ class ContextBuilder:
         *,
         source_id: str,
         context: RetrievedContext,
+        text: str | None = None,
     ) -> str:
         """Format one authoritative source block for the LLM."""
 
@@ -110,7 +127,7 @@ class ContextBuilder:
                 f"section: {section}",
                 f"chunk_id: {context.chunk_id}",
                 "content:",
-                context.text,
+                context.text if text is None else text,
             ]
         )
 
