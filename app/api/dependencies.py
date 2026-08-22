@@ -12,6 +12,10 @@ from app.answering.deepseek_evidence_verifier import DeepSeekEvidenceVerifierPro
 from app.answering.deepseek_llm import DeepSeekLLMProvider
 from app.answering.evidence_verifier import EvidenceVerifierProvider
 from app.answering.llm import LLMProvider
+from app.answering.provider_retry import (
+    RetryingEvidenceVerifierProvider,
+    RetryingLLMProvider,
+)
 from app.answering.workspace_repository import WorkspaceRepository
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
@@ -21,9 +25,18 @@ from app.retrieval.embedding import (
     EmbeddingProvider,
     SentenceTransformerEmbeddingProvider,
 )
+from app.retrieval.answer_retrieval_adapter import AnswerRetrievalAdapter
+from app.retrieval.bm25_repository import BM25ChunkRepository
+from app.retrieval.bm25_retrieval_service import BM25RetrievalService
 from app.retrieval.dense_retrieval_service import DenseRetrievalService
+from app.retrieval.hybrid_retrieval_service import HybridRetrievalService
 from app.retrieval.indexing_service import IndexingService
 from app.retrieval.qdrant_repository import QdrantRepository
+from app.retrieval.reranker import (
+    CrossEncoderRerankerProvider,
+    RerankerProvider,
+)
+from app.retrieval.reranking_service import RerankingService
 from app.retrieval.repository import VectorRepository
 
 
@@ -92,24 +105,69 @@ def get_dense_retrieval_service() -> DenseRetrievalService:
 
 
 @lru_cache
+def get_reranker_provider() -> RerankerProvider:
+    # Build and reuse the configured CrossEncoder reranker.
+    return CrossEncoderRerankerProvider(
+        model_name=settings.reranker_model,
+        batch_size=settings.reranker_batch_size,
+        max_length=settings.reranker_max_length,
+    )
+
+
+def get_answer_retrieval_service(
+    *,
+    session: AsyncSession,
+) -> AnswerRetrievalAdapter:
+    # Build the measured Hybrid + CrossEncoder retrieval path for answering.
+    bm25 = BM25RetrievalService(
+        chunk_repository=BM25ChunkRepository(session=session),
+        k1=settings.bm25_k1,
+        b=settings.bm25_b,
+    )
+    hybrid = HybridRetrievalService(
+        dense_retrieval_service=get_dense_retrieval_service(),
+        bm25_retrieval_service=bm25,
+        rrf_k=settings.answer_rrf_k,
+    )
+    reranking = RerankingService(
+        hybrid_retrieval_service=hybrid,
+        chunk_repository=ChunkRepository(session=session),
+        reranker_provider=get_reranker_provider(),
+    )
+    return AnswerRetrievalAdapter(
+        reranking_service=reranking,
+        candidate_limit=settings.answer_retrieval_candidate_limit,
+        rerank_depth=settings.answer_rerank_depth,
+    )
+
+
+@lru_cache
 def get_llm_provider() -> LLMProvider:
     """Build and reuse the configured answer-generation provider."""
-    return DeepSeekLLMProvider(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        timeout_seconds=settings.llm_timeout_seconds,
+    return RetryingLLMProvider(
+        provider=DeepSeekLLMProvider(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+        ),
+        max_attempts=3,
+        base_delay_seconds=0.5,
     )
 
 
 @lru_cache
 def get_evidence_verifier_provider() -> EvidenceVerifierProvider:
     """Build and reuse the configured evidence-verification provider."""
-    return DeepSeekEvidenceVerifierProvider(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        timeout_seconds=settings.llm_timeout_seconds,
+    return RetryingEvidenceVerifierProvider(
+        provider=DeepSeekEvidenceVerifierProvider(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+        ),
+        max_attempts=3,
+        base_delay_seconds=0.5,
     )
 
 
@@ -118,7 +176,9 @@ def get_answer_service(
 ) -> AnswerService:
     """Build the answering service with request-scoped database access."""
     return AnswerService(
-        retrieval_service=get_dense_retrieval_service(),
+        retrieval_service=get_answer_retrieval_service(
+            session=session,
+        ),
         chunk_repository=ChunkRepository(session=session),
         context_enricher=ContextEnricher(),
         context_builder=ContextBuilder(

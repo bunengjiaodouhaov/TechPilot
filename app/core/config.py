@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     bm25_k1: float = 1.5
     bm25_b: float = 0.75
 
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_batch_size: int = 8
+    reranker_max_length: int = 512
+    answer_retrieval_candidate_limit: int = 40
+    answer_rerank_depth: int = 20
+    answer_rrf_k: int = 60
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

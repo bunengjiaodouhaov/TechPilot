@@ -13,7 +13,7 @@ from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
 from app.answering.workspace_repository import WorkspaceRepository
 from app.api.dependencies import (
-    get_dense_retrieval_service,
+    get_answer_retrieval_service,
     get_evidence_verifier_provider,
     get_llm_provider,
 )
@@ -250,7 +250,9 @@ def build_answer_service(
     session: Any,
 ) -> AnswerService:
     return AnswerService(
-        retrieval_service=get_dense_retrieval_service(),
+        retrieval_service=get_answer_retrieval_service(
+            session=session,
+        ),
         chunk_repository=ChunkRepository(session=session),
         context_enricher=ContextEnricher(),
         context_builder=ContextBuilder(

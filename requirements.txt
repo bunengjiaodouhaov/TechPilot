@@ -16,3 +16,8 @@ pytest-asyncio==1.4.0
 sentence-transformers
 jieba>=0.42,<1.0
 langgraph>=1.2,<2.0
+
+# OCR fallback for scanned PDFs
+pypdfium2
+pytesseract
+Pillow

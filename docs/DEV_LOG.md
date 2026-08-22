@@ -1176,3 +1176,133 @@ git diff --check
 
 Day37.5 不进入 Day38，不修改 P4 Agent control/evidence semantics。
 <!-- DAY37_5_PRODUCT_UI_END -->
+
+<!-- EVAL_BACKFILL_20260822_START -->
+## Evaluation Backfill — 评测回填与能力复验（2026-08-20–22）
+
+### 背景
+
+P4 / Day37.5 完成后，原计划直接进入 P5。复盘发现 Document Retrieval、Answer/Evidence、OCR、Code RAG、Research Agent 的历史评测规模和 lineage 不足以支撑第一版简历中的量化表述，因此暂停 Day38，执行一次有边界的 Evaluation Backfill。
+
+原则：
+
+- major Agent architecture freeze；
+- 不为了分数降低 threshold；
+- machine/assistant-generated 数据不称 human-reviewed；
+- old tuned set 不自动称 clean heldout；
+- 每个 capability 只做 1–2 个高信息量优化；
+- 优先保留“问题 → 诊断 → 优化 → 指标变化”的证据链。
+
+### Document Retrieval
+
+- 冻结 30-document / 2345-unit corpus，禁止继续改变 corpus。
+- 生成 600 个 query request，经筛选/assistant review 冻结 400-case candidate set。
+- 对 Dense / BM25 / RRF Hybrid / chunking / CrossEncoder 做有界实验。
+- chunking 选择 1200-char structure-aware / no-overlap；overlap 与更小 chunk 未提升最终指标。
+- Qdrant 暴露 `33838392 bytes > 33554432` request cap；修复为 bounded embedding/upsert batching + compensation delete。
+- 最终 Hybrid + CrossEncoder：
+  - Recall@5 `0.834`
+  - Evidence Hit@5 `0.860`
+  - Coverage `0.847`
+  - MRR `0.726`
+  - nDCG `0.749`
+  - P95 `867.4ms`
+- 相对 Dense：Recall `+21.9pp`、MRR `+28.2pp`、nDCG `+27.1pp`。
+
+结论：Document Retrieval CLOSED。
+
+### Answer / Evidence
+
+- 将最终 retrieval adapter 接入 AnswerService。
+- 冻结 180-case answer/evidence candidate set。
+- 初次执行有 45 runtime errors；失败重跑 43/45 成功，确认 provider instability 不能混入 answer-quality attribution。
+- merged 结果：146 answered、32 over-refusal、2 runtime errors。
+- assistant audit：answered 中 full correct 140/146 = `95.89%`。
+- 20-case source-binding adversarial eval 暴露 named-source false acceptance。
+- Verifier Policy v2 增加 named-source binding + direct-support sufficiency：
+  - correct refusal `19/20`
+  - false-answer `5.0%`
+- Provider Retry v2 增加 bounded transient retry / structured-output single repair；focused tests 100% PASS。
+
+结论：Answer / Evidence CLOSED。
+
+### OCR
+
+- 新增 provider-neutral PDF OCR boundary 与 Tesseract implementation。
+- native-first；低文本页进入 OCR；保留 page provenance 和 extraction method。
+- paired benchmark：20 real pages × 2 queries。
+- scanned ingestion 100%，但原 projection success 75%，不能包装成 overall Recall 100%。
+- failure attribution：layout/table 5/10、projection normalization 4/10、minor OCR 1/10。
+- targeted PSM3：projection `16.7% -> 75%`，rescue 7/10。
+- 剩余问题集中在复杂 table/checklist reading order。
+
+结论：OCR CLOSED WITH KNOWN LIMITATION。
+
+### Code RAG
+
+- 原先规划约 400 case，经职责分析调整为 150 structural/regression + 小型 realistic hard set，避免大量低信息量 exact lookup。
+- 冻结 150-case mixed legacy + deterministic-validated set。
+- baseline：
+  - File Hit@5 `94.67%`
+  - Content Hit `89.33%`
+  - Strict Symbol `87.68%`
+  - MRR `86.78%`
+  - File nDCG@5 `88.80%`
+  - Provenance `100%`
+- 发现 generated deterministic cases 存在 query-construction bias；不丢弃 benchmark，而是重新定义为 structural/regression，并新增 30 条真实 task-oriented hard queries。
+- hard-30：
+  - File Hit@5 `93.33%`
+  - Content Hit `93.33%`
+  - Strict Symbol `80%`
+  - MRR `74.28%`
+  - Provenance `100%`
+- failure audit 发现多数 strict-symbol miss 是 enclosing-class granularity，而非 implementation miss。
+- identifier-rich 25-case targeted probe：keyword -> hybrid，File `80 -> 100`、Content `64 -> 100`、Symbol `64 -> 100`、MRR `56.3 -> 88.0`；仅保留为 routing regression evidence，不外推到真实业务整体。
+
+结论：Code RAG CLOSED WITH KNOWN LIMITATIONS。
+
+### Research Agent
+
+- 复用 Day34 mixed-workload evaluation contract，新增 36-case machine-validated Research Agent backfill：
+  - multi-obligation
+  - source-role production authority
+  - obligation persistence / goal drift
+  - known-source refinement
+  - failure recovery
+  - unsupported production claims
+- 第一轮只有 `6/36` pass，并出现 27 个 ≥2 zero-evidence-action cases。
+- 追踪发现不是 prompt 根因：旧 Day34 evaluator runtime 只注册 `search_symbol / search_code / read_file`，而当前 RepoExplorer 已支持 dense/keyword/hybrid/module/call/path。
+- 修复 evaluator / integration harness capability surface，保持 dataset 与 Golden 不变：
+  - case pass `16.7% -> 55.6%`
+  - positive source coverage `41.7% -> 78.3%`
+  - negative correctness `33.3% -> 100%`
+  - ≥2 zero-evidence cases `27 -> 5`
+  - false completion `0`
+  - provenance `100%`
+- full-surface baseline：
+  - positive grounded success `46.7%`
+  - decision-context coverage `65.0%`
+  - source-role authority `6/6`
+  - unsupported production claims `6/6`
+  - multi-obligation `2/6`
+  - goal drift `0/6`
+- `PREFIX -> QUERY_FOCUSED` 12-case probe 使 success 和 source coverage 下降；拒绝采用。
+- 结论：当前瓶颈不再是 underlying Hybrid retrieval，而是 semantic planning / multi-obligation decomposition / obligation persistence / exact known-source refinement。
+
+结论：Research Agent CLOSED WITH KNOWN LIMITATIONS。
+
+### 本轮最重要的工程结论
+
+1. **评测 Harness 本身也是系统的一部分。** Capability wiring 落后会制造假 failure；必须先确认 evaluator 与 production-capability contract parity。
+2. **检索命中不等于 Agent 成功。** Source Coverage、Decision Context、Semantic Requirement、Grounded Completion 必须分层。
+3. **不能围绕 benchmark 无限调。** Query-focused probe 变差后直接 reject，保留 PREFIX 和真实 limitation。
+4. **安全失败比虚假完成重要。** Research Agent 对 6/6 unsupported production claims 正确 insufficient，false completion = 0。
+5. **评测 lineage 必须明确。** 本轮新增数据不冒充 human-reviewed / clean heldout。
+
+### 阶段状态
+
+Evaluation Backfill = COMPLETE。
+
+下一步恢复 P5 Day38：JD Structured Output / 岗位与项目证据。真实 JD、结构化输出、证据绑定和业务评测优先；不再继续扩 benchmark。
+
+<!-- EVAL_BACKFILL_20260822_END -->

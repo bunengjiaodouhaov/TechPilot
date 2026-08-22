@@ -969,3 +969,249 @@ Agent 没有 obligation-aware budget allocation，大量 step 都花在 API entr
 
 Workspace 下仍有 active documents 时直接删除会破坏 source lifecycle 语义。先通过 document delete 完成 PostgreSQL soft-delete + best-effort vector cleanup，再允许删除空 Workspace，属于 fail-closed product boundary。
 <!-- DAY37_5_PRODUCT_UI_END -->
+
+<!-- EVAL_BACKFILL_20260822_START -->
+## Evaluation Backfill / 第一版简历面试补充
+
+### 简历上的数字应该怎么解释
+
+本轮数据用于证明“我有系统评测、failure attribution 和受控优化”，但不是所有集合都属于 clean heldout。
+
+面试中如果被问数据来源，应主动说明：
+
+> Document 400、Answer 180、Research Agent 36 都是冻结的工程评测集，但 lineage 中包含 assistant/machine validation，我不会把它们包装成人工独立 heldout。Code RAG 另外补了 30 条从真实工程问题出发的 task-oriented hard cases，用于检查自动生成 benchmark 的 construction bias。
+
+这种表述比“我有几百条 Golden，全是人工”更可信。
+
+---
+
+### Q：RAG 这部分最硬的量化结果是什么？
+
+我把 30 份技术文档冻结成 2345 个 canonical units，并建立 400-case frozen retrieval evaluation。
+
+Dense baseline：
+
+```text
+Recall@5 61.5%
+MRR@5    44.4%
+nDCG@5   47.8%
+```
+
+最终使用：
+
+```text
+E5 Dense + BM25 + RRF + CrossEncoder
+```
+
+得到：
+
+```text
+Recall@5 83.4%
+MRR@5    72.6%
+nDCG@5   74.9%
+Coverage 84.7%
+P95      867.4ms
+```
+
+不是通过无限 grid search 得到的。我分别验证 chunking、fusion 和 reranking，只保留高信息量实验。1200-char/no-overlap 最终优于几个 overlap 方案，Hybrid 后再加 CrossEncoder 带来 Recall `+8.3pp`，代价约 `+125ms P95`，属于可解释质量/延迟 trade-off。
+
+---
+
+### Q：你怎么保证“回答正确”不是模型自己猜对？
+
+回答链路是：
+
+```text
+Retriever
+→ authoritative PostgreSQL Chunk
+→ Context
+→ Evidence Verifier
+→ verified supporting sources only
+→ Generator
+→ Citation validation
+```
+
+Qdrant 只做可重建索引，不是正文事实来源。
+
+180-case answer/evidence evaluation 中，146 条实际回答；assistant audit 的 full correct 为 `140/146 = 95.89%`。同时 strict citation precision / recall 单独统计，不把“答案看起来对”当成 evidence correctness。
+
+20-case source-binding adversarial set 上，Verifier Policy v2 后 false-answer 为 `5%`。
+
+---
+
+### Q：Code RAG 为什么分成 150-case 和 hard-30？
+
+因为我发现自动从 symbol/docstring 反向生成的代码题会天然偏容易。
+
+所以没有删除 150-case，而是把它重新定义为：
+
+> structural / regression benchmark
+
+结果：
+
+```text
+File Hit@5    94.7%
+Content Hit   89.3%
+Symbol Hit    87.7%
+nDCG@5        88.8%
+Provenance   100%
+```
+
+然后另外从真实工程问题出发写 30 条 task-oriented natural-language query，不把 file path / symbol 暴露给 query：
+
+```text
+File Hit@5    93.3%
+Content Hit   93.3%
+Symbol Hit    80.0%
+MRR           74.3%
+Provenance   100%
+```
+
+hard-case review 还发现 4 个所谓 symbol miss 其实拿到了 enclosing class，说明 metric granularity 也要被审计，而不是只追分数。
+
+---
+
+### Q：Research Agent 最值得讲的 failure 是什么？
+
+36-case backfill 第一轮只有 16.7% pass，而且 27/36 出现至少两次 zero-evidence action。
+
+如果只看结果，很容易继续调 prompt。
+
+我先查 action trace 和 capability surface，发现旧 Day34 evaluator 只注册：
+
+```text
+search_symbol
+search_code
+read_file
+```
+
+但当前 RepoExplorer 已经支持：
+
+```text
+dense
+keyword
+hybrid
+module
+call
+path
+```
+
+这意味着第一轮主要测到的是 evaluator/integration harness 落后，不是最终 Agent。
+
+保持 dataset / Golden 不变，只补齐 full Code RAG capability surface 后：
+
+```text
+case pass                16.7% -> 55.6%
+source coverage           41.7% -> 78.3%
+negative correctness      33.3% -> 100%
+>=2 zero-evidence cases      27 -> 5
+false completion                0
+provenance                    100%
+```
+
+注意：16.7% 不是我对外宣称的产品 baseline，而是一个 wiring-mismatch diagnostic。
+
+这次经历让我确认：
+
+> 评测 Harness 的 capability parity 本身也必须被验证，否则会把 integration bug 错归因给模型。
+
+---
+
+### Q：Agent 现在还有什么明显问题？
+
+我不会说 Research Agent 已经完全解决。
+
+full-surface 36-case 中：
+
+```text
+source-role production authority     6/6
+unsupported production claim         6/6
+failure recovery                      3/6
+known-source refinement               3/6
+multi-obligation                      2/6
+obligation persistence / goal drift   0/6
+```
+
+最明显的问题是复杂多义务任务。
+
+Underlying Hybrid retrieval 已经有很强信号：36-case 中 Hybrid 调用 38 次，没有一次 zero-evidence。剩余 failure 更集中在：
+
+```text
+semantic planning
+multi-obligation decomposition
+unresolved obligation persistence
+next evidence-gap selection
+known-source refinement
+```
+
+我还做了一个 `PREFIX -> QUERY_FOCUSED` 的受控 context experiment，但 12 条 hardest cases 反而变差，所以直接 reject，没有为了把 benchmark 调漂亮继续 prompt sweep。
+
+---
+
+### Q：为什么 0 false completion 比 overall pass 更重要？
+
+Agent 在 evidence 不足时最危险的不是“没做完”，而是“看起来做完了”。
+
+我专门加入 6 条 repository 无法证明的 production claims，例如：
+
+- 真实线上 uptime；
+- 当前活跃用户；
+- 本月云成本；
+- 最新外部漏洞状态；
+- 真实生产流量质量；
+- 最近一次生产故障恢复时间。
+
+结果：
+
+```text
+negative correctness 6/6
+false completion     0
+provenance integrity 100%
+```
+
+这说明当前系统的 fail-closed boundary 是成立的，即使复杂业务 task success 仍有提升空间。
+
+---
+
+### Q：你做 Evaluation Backfill 的核心目的是什么？
+
+不是单纯把 case 数做大，而是解决三个问题：
+
+1. 简历上的数字有没有可追溯来源；
+2. 指标失败到底属于 retrieval、context、control、provider 还是 evaluation contract；
+3. 每个优化有没有 before/after，而且有没有被真实失败支持。
+
+所以本轮最后并没有继续追求更高 benchmark 分数，而是把 Document / Answer / OCR / Code RAG / Research Agent 都关到一个“有数字、有 failure、有 limitation”的状态，然后进入 P5 真实 JD 业务。
+
+---
+
+### 第一版简历推荐表述（项目经历）
+
+**TechPilot｜基于 RAG、Code RAG 与 Agent Harness 的开发者技术调研平台**
+
+- 构建 FastAPI + PostgreSQL + Qdrant 的 evidence-grounded RAG 链路，围绕 30 份技术文档建立 400-case frozen retrieval evaluation；将 Dense baseline 升级为 **E5 Dense + BM25 + RRF + CrossEncoder**，Recall@5 **61.5%→83.4%**、MRR@5 **44.4%→72.6%**、nDCG@5 **47.8%→74.9%**，最终 P95 约 **867ms**。
+- 设计 Evidence Verifier / source binding / citation gate，将检索相关性与证据充分性解耦；180-case Answer/Evidence 评测中 146 条实际回答，assistant audit full-correct **95.9%**，20-case source-binding adversarial set 最终 false-answer **5%**；Provider 层实现 bounded transient retry 与 structured-output repair。
+- 实现只读 **Code RAG + Thick Harness**：RepositoryReadBoundary、typed ToolRuntime/Registry、authoritative `read_file -> CodeEvidence -> EvidencePack`、keyword/dense/hybrid 与 AST module/call 检索；150-case structural regression File Hit@5 **94.7%**、Content Hit **89.3%**、provenance **100%**，30-case realistic task set File/Content Hit **93.3%**。
+- 基于 LangGraph 构建 bounded Research Agent，将 semantic reasoner、ToolRuntime、Evidence、Trace、retry/termination 分层；36-case backfill 对 unsupported production claims **6/6 正确拒绝、0 false completion、100% provenance**，并通过 failure attribution 定位 multi-obligation decomposition / goal drift 为当前主要瓶颈，而非继续对 Retriever/Prompt 做无界调参。
+
+> 简历正文建议优先放前三条或四条；若版面只有 3 bullets，保留第 1、3、4 条，第 2 条压缩进第 1 条。
+
+---
+
+### 30 秒项目介绍
+
+> TechPilot 是一个面向开发者技术调研和代码理解的 evidence-grounded LLM 系统。我从文档 RAG 做起，自己实现了 Dense/BM25/RRF/Reranker、Evidence Verifier 和 Citation binding；之后做了只读 Code RAG，把 AST 结构检索、语义检索和 authoritative source materialization 接进统一 Tool Harness；P4 再用 LangGraph 做 bounded Research Agent。这个项目我比较强调评测和 failure attribution，比如 400-case retrieval 上 Recall@5 从 61.5% 提到 83.4%，Code RAG realistic hard set File/Content Hit 是 93.3%，Agent 对无法由仓库证明的 production claims 做到了 0 false completion。现在已完成评测回填，下一阶段进入真实 JD 能力分析闭环。
+
+---
+
+### 2 分钟项目介绍骨架
+
+1. **业务问题**：开发者技术调研、理解代码仓库、后续把 JD 要求映射到自己的项目证据。
+2. **RAG**：PostgreSQL 是事实来源，Qdrant 是可重建索引；Dense → BM25/RRF → CrossEncoder；Evidence Verifier 决定能不能回答。
+3. **Code RAG**：不能把 retrieval hit 当 evidence；所有 candidate 必须再走 `read_file`，绑定 file/symbol/line/snippet；AST 只提供 structural clue。
+4. **Agent**：LLM 只负责 semantic next action；Harness 负责 schema/permission/timeout；Control 负责 max steps/retry/termination；Evidence 决定事实。
+5. **评测**：分 source coverage、decision-context coverage、grounded completion；避免把“找到了文件”包装成“任务成功”。
+6. **一个真实失败**：Research backfill 先发现 evaluator capability wiring 落后，修复后 source coverage 大幅提升；之后 targeted query-focused experiment 变差，明确 reject，剩余问题定位为 multi-obligation planning。
+7. **当前边界**：不是通用 Coding Agent，不执行 shell/write/git；Research Agent 对复杂 goal drift 仍有限制；下一步进入 JD 结构化与能力证据业务。
+
+<!-- EVAL_BACKFILL_20260822_END -->

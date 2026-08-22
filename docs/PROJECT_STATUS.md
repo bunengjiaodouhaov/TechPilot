@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P4：Research Agent — Day30–37 = PASS WITH KNOWN LIMITATIONS；下一步 Day38 进入 P5 JD Structured Output / 岗位与项目证据；P2 production boundary 继续 Dense-only
+P4 Research Agent / Day37.5 Product UI 已关闭；Evaluation Backfill = COMPLETE；下一步恢复 P5 Day38–42：JD Structured Output / 岗位与项目证据。
 
 ## 阶段状态
 
@@ -20,6 +20,7 @@ P4：Research Agent — Day30–37 = PASS WITH KNOWN LIMITATIONS；下一步 Day
 - P2 高质量 RAG：capability Gate = PASS；production Retrieval = Dense-only
 - P3 Code RAG：Day 18–25 repository boundary / Repo Explorer / trace / code retrieval / module structure / static call clues 已完成
 - P4 Research Agent：Day30–37 = PASS WITH KNOWN LIMITATIONS
+- Evaluation Backfill：COMPLETE
 - 下一步：Day38 P5 JD Structured Output / 岗位与项目证据
 
 ## 已完成
@@ -604,3 +605,209 @@ P5 复用 P3/P4 Tool / Evidence / Trace / structured failure / evaluation Harnes
 
 下一步：**Day38 / P5 — JD Structured Output**。
 <!-- DAY37_5_PRODUCT_UI_END -->
+
+<!-- EVAL_BACKFILL_20260822_START -->
+## Evaluation Backfill — COMPLETE（2026-08-22）
+
+### 状态
+
+- Document Retrieval：**CLOSED**
+- Answer / Evidence：**CLOSED**
+- OCR：**CLOSED WITH KNOWN LIMITATION**
+- Code RAG：**CLOSED WITH KNOWN LIMITATIONS**
+- Research Agent：**CLOSED WITH KNOWN LIMITATIONS**
+- Evaluation Backfill：**COMPLETE**
+- 下一阶段：恢复 **P5 Day38–42：JD Structured Output / 岗位与项目证据**
+
+### 评测资产边界
+
+本轮回填的目标是补足“简历数字、失败归因、优化证据”，不是把所有数据包装成 clean heldout。
+
+- Document 400：assistant-reviewed frozen candidate set；`review_status=machine_validated`；不是 clean heldout。
+- Answer 180：machine/assistant lineage；不是 human-reviewed / clean heldout。
+- Code RAG 150：mixed legacy + deterministic-validated structural/regression candidate set；不是 clean heldout。
+- Code RAG hard-30：task-oriented realistic check；assistant-curated + local authoritative source validation；不是 clean heldout。
+- Research Agent 36：machine-validated backfill；positive source/marker truth 在当前本地仓库验证；不是 clean heldout。
+
+### Document Retrieval
+
+冻结 corpus：
+
+- 30 documents
+- 2345 canonical units
+- corpus_version：`batch2-final-v1`
+
+400-case frozen evaluation：
+
+```text
+Dense
+Recall@5          61.5%
+Evidence Hit@5    64.5%
+MRR@5             44.4%
+nDCG@5            47.8%
+Coverage           63.0%
+
+Hybrid + CrossEncoder
+Recall@5          83.4%
+Evidence Hit@5    86.0%
+MRR@5             72.6%
+nDCG@5            74.9%
+Coverage           84.7%
+P95                867.4 ms
+```
+
+最终候选方案：
+
+```text
+1200-char structure-aware / no overlap
++ multilingual-e5-base Dense
++ BM25
++ RRF
++ CrossEncoder reranker
+```
+
+相对 Dense：
+
+- Recall：`+21.9pp`
+- Evidence Hit：`+21.5pp`
+- Coverage：`+21.7pp`
+- MRR：`+28.2pp`
+- nDCG：`+27.1pp`
+
+同时修复大批量 Qdrant request 超限问题：embedding / upsert 改为 bounded batching，并保留 document compensation delete。
+
+### Answer / Evidence
+
+180-case answer/evidence evaluation：
+
+- runtime errors：2
+- answered：146
+- over-refusal：32
+- citation hit：86.30%
+- document citation hit：96.58%
+- strict citation precision：68.29%
+- strict citation recall：84.25%
+- evidence coverage：85.62%
+
+Assistant audit（146 answered）：
+
+- full correct：140 / 146 = **95.89%**
+- partial：4
+- incorrect：2
+- full-correct E2E yield：77.78%
+- partial+ E2E yield：80.00%
+
+Verifier Policy v2 在 20-case source-binding adversarial set：
+
+- correct refusal：19/20
+- false-answer：**5.0%**
+
+Provider Retry v2：
+
+- bounded retry
+- transient-only retry
+- structured-output single repair
+- non-retryable 4xx fail-fast
+- focused tests：100% PASS
+
+### OCR
+
+- native/scanned paired benchmark：20 real pages × 2 queries = 40 query cases
+- scanned ingestion：100%
+- 原 projection success：75%
+- targeted PSM6 → PSM3：
+  - projection：16.7% → 75.0%
+  - `+58.3pp`
+  - rescued 7/10 previous failures
+
+已知限制：
+
+> 复杂 table / checklist reading order 仍需要 layout-aware parsing；不继续做无界 OCR engine / DPI sweep。
+
+### Code RAG
+
+150-case structural/regression benchmark：
+
+```text
+File Hit@5             94.67%
+Evidence Content Hit   89.33%
+Strict Exact Symbol    87.68%
+MRR                    86.78%
+File nDCG@5            88.80%
+Provenance Integrity  100.00%
+```
+
+30-case task-oriented hard benchmark：
+
+```text
+File Hit@5             93.33%
+Evidence Content Hit   93.33%
+Strict Exact Symbol    80.00%
+MRR                    74.28%
+Provenance Integrity  100.00%
+```
+
+Hard-30 audit：
+
+- 4 个 strict-symbol miss 实际命中 enclosing class；
+- 1 个 file miss 属于 overly narrow Golden；
+- 1 个属于 document/code hybrid identity guard 的 query ambiguity；
+- 未观察到明显完全无关的 retrieval failure。
+
+Targeted identifier-rich routing probe：
+
+```text
+Keyword -> Hybrid
+
+File Hit       80%   -> 100%
+Content Hit    64%   -> 100%
+Exact Symbol   64%   -> 100%
+MRR            56.3% -> 88.0%
+```
+
+该 probe 仅证明 Hybrid 更适合该 identifier-rich derived subset；不作为真实业务整体提升数字。
+
+### Research Agent
+
+36-case machine-validated backfill，在 **full Code RAG capability surface** 下：
+
+```text
+Overall case pass                    55.56%
+Positive grounded success            46.67%
+Positive source coverage             78.33%
+Decision-context coverage            65.00%
+
+Negative outcome correctness        100.00%
+False completion on negatives         0
+Provenance integrity                100.00%
+```
+
+分类：
+
+- source-role production authority：6/6
+- unsupported production claim：6/6
+- failure recovery：3/6
+- known-source refinement：3/6
+- multi-obligation release review：2/6
+- obligation persistence / goal drift：0/6
+
+关键诊断：
+
+1. 第一轮旧 Day34 evaluator 只暴露 `symbol/code/read`，造成大量 zero-evidence loop；该 `16.7%` 仅作为 **legacy evaluator wiring mismatch diagnostic**，不是最终 Research Agent baseline。
+2. 接入当前完整 Code RAG surface 后，case pass `16.7% -> 55.6%`，source coverage `41.7% -> 78.3%`，≥2 zero-evidence cases `27 -> 5`。
+3. Hybrid 共使用 38 次且无 zero-evidence，说明当前主要瓶颈不是 Code RAG。
+4. `PREFIX -> QUERY_FOCUSED` 的 12-case targeted probe 反而降低 success / source coverage，因此拒绝合入。
+5. 当前真实 limitation 集中在 semantic planning、multi-obligation decomposition、unresolved obligation persistence / goal drift、known-source refinement。
+
+### Gate 决策
+
+Evaluation Backfill 到此停止，不再做：
+
+- broad prompt sweep；
+- retrieval 参数网格；
+- benchmark 扩容；
+- 为少数 case 写特例 heuristic。
+
+后续只有在 P5/P6 真实业务链路暴露具体 regression 时，才重新打开对应 capability。
+
+<!-- EVAL_BACKFILL_20260822_END -->

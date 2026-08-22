@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.ingestion.ocr import TesseractPDFOCRProvider
 from app.ingestion.parsers import (
     BaseParser,
     MarkdownParser,
@@ -42,7 +43,9 @@ class ParserRouter:
     def __init__(self) -> None:
         self._parsers: dict[str, BaseParser] = {
             "markdown": MarkdownParser(),
-            "pdf": PDFParser(),
+            "pdf": PDFParser(
+                ocr_provider=TesseractPDFOCRProvider(),
+            ),
         }
 
     def select(

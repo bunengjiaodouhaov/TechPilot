@@ -9,6 +9,9 @@ from app.retrieval.embedding import EmbeddingProvider
 from app.retrieval.repository import VectorRepository
 
 
+DEFAULT_INDEXING_BATCH_SIZE = 128
+
+
 @dataclass(frozen=True)
 class IndexingResult:
     """Summary returned after one document is indexed."""
@@ -25,9 +28,14 @@ class IndexingService:
         *,
         embedding_provider: EmbeddingProvider,
         vector_repository: VectorRepository,
+        batch_size: int = DEFAULT_INDEXING_BATCH_SIZE,
     ) -> None:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+
         self._embedding_provider = embedding_provider
         self._vector_repository = vector_repository
+        self._batch_size = batch_size
 
     async def index_document(
         self,
@@ -35,7 +43,7 @@ class IndexingService:
         document: Document,
         chunks: Sequence[Chunk],
     ) -> IndexingResult:
-        """Embed and index all persisted chunks belonging to one document."""
+        """Embed and index persisted chunks in bounded, compensatable batches."""
 
         if document.id is None:
             raise ValueError(
@@ -59,37 +67,67 @@ class IndexingService:
             chunks=chunk_list,
         )
 
-        texts = [chunk.text for chunk in chunk_list]
-
-        vectors = await asyncio.to_thread(
-            self._embedding_provider.embed_documents,
-            texts,
-        )
-
-        if len(vectors) != len(chunk_list):
-            raise ValueError(
-                "embedding count does not match chunk count"
-            )
-
-        points = [
-            self._build_point(
-                document=document,
-                chunk=chunk,
-                vector=vector,
-            )
-            for chunk, vector in zip(
-                chunk_list,
-                vectors,
-                strict=True,
-            )
-        ]
-
         await self._vector_repository.ensure_collection()
-        await self._vector_repository.upsert_points(points)
+
+        indexed_chunk_count = 0
+
+        try:
+            for start in range(
+                0,
+                len(chunk_list),
+                self._batch_size,
+            ):
+                batch = chunk_list[
+                    start : start + self._batch_size
+                ]
+
+                vectors = await asyncio.to_thread(
+                    self._embedding_provider.embed_documents,
+                    [chunk.text for chunk in batch],
+                )
+
+                if len(vectors) != len(batch):
+                    raise ValueError(
+                        "embedding count does not match chunk count"
+                    )
+
+                points = [
+                    self._build_point(
+                        document=document,
+                        chunk=chunk,
+                        vector=vector,
+                    )
+                    for chunk, vector in zip(
+                        batch,
+                        vectors,
+                        strict=True,
+                    )
+                ]
+
+                await self._vector_repository.upsert_points(
+                    points
+                )
+                indexed_chunk_count += len(points)
+
+        except Exception as indexing_exc:
+            # A multi-batch write can partially succeed. PostgreSQL remains the
+            # source of truth, so compensate by deleting every vector point for
+            # this document before propagating the original indexing failure.
+            try:
+                await self._vector_repository.delete_document_points(
+                    workspace_id=document.workspace_id,
+                    document_id=document.id,
+                )
+            except Exception as cleanup_exc:
+                indexing_exc.add_note(
+                    "Qdrant compensation cleanup also failed: "
+                    f"{type(cleanup_exc).__name__}: {cleanup_exc}"
+                )
+            raise
 
         return IndexingResult(
             document_id=document.id,
-            indexed_chunk_count=len(points),
+            indexed_chunk_count=indexed_chunk_count,
         )
 
     @staticmethod
