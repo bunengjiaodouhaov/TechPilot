@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.documents.service import DocumentService
 from app.ingestion.service import IngestionService
+from app.jd.deepseek_extractor import DeepSeekJDExtractor
 from app.retrieval.embedding import (
     EmbeddingProvider,
     SentenceTransformerEmbeddingProvider,
@@ -187,4 +188,14 @@ def get_answer_service(
         evidence_verifier=get_evidence_verifier_provider(),
         llm_provider=get_llm_provider(),
         workspace_repository=WorkspaceRepository(session=session),
+    )
+
+@lru_cache
+def get_jd_extractor() -> DeepSeekJDExtractor:
+    """Build and reuse the configured JD structured-output provider."""
+    return DeepSeekJDExtractor(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
     )

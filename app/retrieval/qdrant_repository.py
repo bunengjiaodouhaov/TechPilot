@@ -4,6 +4,7 @@ from typing import Any, Mapping, cast
 from qdrant_client import AsyncQdrantClient
 from qdrant_client import models as qdrant_models
 
+from app.core.network import should_trust_proxy_environment
 from app.retrieval.dto import (
     ChunkVectorPayload,
     VectorPoint,
@@ -37,6 +38,7 @@ class QdrantRepository(VectorRepository):
 
         self._client = client or AsyncQdrantClient(
             url=qdrant_url,
+            trust_env=should_trust_proxy_environment(qdrant_url),
         )
 
     async def ensure_collection(self) -> None:

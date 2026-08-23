@@ -45,6 +45,7 @@ class ParserRouter:
             "markdown": MarkdownParser(),
             "pdf": PDFParser(
                 ocr_provider=TesseractPDFOCRProvider(),
+                native_text_min_chars=24,
             ),
         }
 

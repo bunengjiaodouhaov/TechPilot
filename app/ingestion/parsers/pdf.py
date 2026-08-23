@@ -15,7 +15,7 @@ class PDFParser(BaseParser):
         self,
         *,
         ocr_provider: PDFOCRProvider | None = None,
-        native_text_min_chars: int = 24,
+        native_text_min_chars: int = 1,
     ) -> None:
         if native_text_min_chars < 0:
             raise ValueError("native_text_min_chars must be non-negative")
@@ -110,14 +110,17 @@ class PDFParser(BaseParser):
         page_number: int,
         extraction_method: str,
     ) -> ParsedElement:
+        source_metadata: dict[str, object] = {
+            "page_start": page_number,
+            "page_end": page_number,
+        }
+        if extraction_method != "native":
+            source_metadata["extraction_method"] = extraction_method
+
         return ParsedElement(
             text=text,
             element_type="page_text",
-            source_metadata={
-                "page_start": page_number,
-                "page_end": page_number,
-                "extraction_method": extraction_method,
-            },
+            source_metadata=source_metadata,
         )
 
     @staticmethod

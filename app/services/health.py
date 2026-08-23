@@ -5,17 +5,26 @@ from typing import Any
 import httpx
 from redis.asyncio import Redis
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
-from app.db.session import AsyncSessionLocal
+from app.core.network import should_trust_proxy_environment
+
+_postgres_health_engine = create_async_engine(
+    settings.database_url,
+    poolclass=NullPool,
+)
+
 
 
 async def check_postgres() -> dict[str, Any]:
+    """Probe PostgreSQL without touching the application pooled connections."""
     started = time.perf_counter()
 
     try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1"))
+        async with _postgres_health_engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
 
         return {
             "status": "ok",
@@ -54,7 +63,10 @@ async def check_qdrant() -> dict[str, Any]:
     started = time.perf_counter()
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=should_trust_proxy_environment(settings.qdrant_url),
+        ) as client:
             response = await client.get(f"{settings.qdrant_url}/healthz")
             response.raise_for_status()
 
