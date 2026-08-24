@@ -15,6 +15,7 @@ QuestionText = Annotated[
 
 class AnswerRequest(BaseModel):
     workspace_id: int = Field(gt=0)
+    conversation_id: int | None = Field(default=None, gt=0)
     question: QuestionText
 
 

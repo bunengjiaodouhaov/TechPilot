@@ -93,6 +93,8 @@ class IngestionService:
         self._session.add(document)
         await self._session.commit()
         await self._session.refresh(document)
+        # Preserve the scalar id before rollback can expire ORM state.
+        document_id = document.id
 
         try:
             parse_input = ParseInput(
@@ -174,7 +176,7 @@ class IngestionService:
 
             failed_document = await self._session.get(
                 Document,
-                document.id,
+                document_id,
             )
 
             if failed_document is not None:

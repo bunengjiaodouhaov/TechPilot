@@ -304,12 +304,27 @@ class StructureAwareChunker:
         chunks: list[ChunkData] = []
 
         for chunk_index, candidate in enumerate(candidates):
+
+            # Normalize lone surrogate code points before hashing, persistence, and indexing.
+
+            safe_text = candidate.text.encode("utf-8", errors="replace").decode("utf-8").replace("\x00", "")
+
+            safe_section = (
+
+                candidate.section.encode("utf-8", errors="replace").decode("utf-8").replace("\x00", "")
+
+                if candidate.section is not None
+
+                else None
+
+            )
+
             identity = "\n".join(
                 [
-                    candidate.section or "",
+                    safe_section or "",
                     str(candidate.page_start or ""),
                     str(candidate.page_end or ""),
-                    " ".join(candidate.text.split()),
+                    " ".join(safe_text.split()),
                 ]
             )
 
@@ -327,11 +342,11 @@ class StructureAwareChunker:
                 ChunkData(
                     chunk_id=chunk_id,
                     chunk_index=chunk_index,
-                    text=candidate.text,
+                    text=safe_text,
                     page_start=candidate.page_start,
                     page_end=candidate.page_end,
-                    section=candidate.section,
-                    char_count=len(candidate.text),
+                    section=safe_section,
+                    char_count=len(safe_text),
                     metadata=candidate.metadata,
                 )
             )

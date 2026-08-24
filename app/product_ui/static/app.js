@@ -127,6 +127,7 @@
       state.selectedUploadId = null;
       resetConversation();
       renderUploads();
+      loadConversationHistory();
     }
     renderWorkspaceList();
     return true;
@@ -149,9 +150,14 @@
       const payload = await parseResponse(response);
       state.workspaces = Array.isArray(payload) ? payload : [];
       const selected = (preferCurrent && state.workspaces.find((item) => item.id === state.workspaceId)) || state.workspaces[0] || null;
-      if (selected) setWorkspace(selected);
-      else clearWorkspaceSelection();
+      if (selected) {
+        setWorkspace(selected);
+        await loadConversationHistory();
+      } else {
+        clearWorkspaceSelection();
+      }
       renderWorkspaceList();
+      window.dispatchEvent(new CustomEvent("techpilot:workspace-ready"));
       return true;
     } catch (error) {
       state.workspaces = [];
@@ -357,7 +363,7 @@
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
-  function appendMessage({ role, text, refused = false, sourceCount = 0, loading = false, error = false }) {
+  function appendMessage({ role, text, refused = false, sourceCount = 0, loading = false, error = false, createdAt = null }) {
     els.welcomeState.classList.add("hidden");
 
     const article = document.createElement("article");
@@ -376,7 +382,7 @@
 
     const time = document.createElement("span");
     time.className = "message-time";
-    time.textContent = formatTime();
+    time.textContent = formatTime(createdAt ? new Date(createdAt) : new Date());
 
     head.append(avatar, author, time);
 
@@ -470,7 +476,11 @@
       const response = await fetch("/answers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: state.workspaceId, question: trimmed }),
+        body: JSON.stringify({
+          workspace_id: state.workspaceId,
+          conversation_id: await ensureConversationId(),
+          question: trimmed,
+        }),
       });
       const payload = await parseResponse(response);
       pending.remove();
@@ -481,6 +491,7 @@
         refused: Boolean(payload.refused),
         sourceCount: state.citations.length,
       });
+      window.dispatchEvent(new CustomEvent("techpilot:conversation-updated"));
     } catch (error) {
       pending.remove();
       renderCitations([]);
@@ -752,12 +763,112 @@
     window.setTimeout(() => toast.remove(), 4200);
   }
 
+  function activeConversationId() {
+    if (!state.workspaceId) return null;
+    const value = Number.parseInt(
+      localStorage.getItem(`techpilot.conversationId.${state.workspaceId}`) || "",
+      10
+    );
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  async function ensureConversationId() {
+    if (!state.workspaceId) return null;
+    const response = await fetch(
+      `/workspaces/${encodeURIComponent(state.workspaceId)}/conversations`,
+      { cache: "no-store" }
+    );
+    let conversations = await parseResponse(response);
+    let conversationId = activeConversationId();
+
+    if (
+      conversationId &&
+      conversations.some((item) => item.id === conversationId)
+    ) {
+      return conversationId;
+    }
+
+    if (!conversations.length) {
+      const createResponse = await fetch(
+        `/workspaces/${encodeURIComponent(state.workspaceId)}/conversations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: "新对话" }),
+        }
+      );
+      conversations = [await parseResponse(createResponse)];
+    }
+
+    conversationId = conversations[0].id;
+    localStorage.setItem(
+      `techpilot.conversationId.${state.workspaceId}`,
+      String(conversationId)
+    );
+    return conversationId;
+  }
+
+  async function loadConversationHistory() {
+    if (!state.workspaceId) return;
+    try {
+      const conversationId = await ensureConversationId();
+      if (!conversationId) return;
+      const response = await fetch(
+        `/conversations/${encodeURIComponent(conversationId)}/history`,
+        { cache: "no-store" }
+      );
+      const history = await parseResponse(response);
+      els.conversation.replaceChildren();
+      els.welcomeState.classList.toggle("hidden", history.length > 0);
+      let latestCitations = [];
+      history.forEach((turn) => {
+        const citations = Array.isArray(turn.citations) ? turn.citations : [];
+        appendMessage({
+          role: turn.role === "assistant" ? "assistant" : "user",
+          text: turn.text || "",
+          refused: Boolean(turn.refused),
+          sourceCount: citations.length,
+          createdAt: turn.created_at || null,
+        });
+        if (turn.role === "assistant") latestCitations = citations;
+      });
+      renderCitations(latestCitations);
+    } catch (error) {
+      showToast("History unavailable", friendlyError(error), "error");
+    }
+  }
+
+  async function clearConversationHistory() {
+    if (!state.workspaceId) {
+      resetConversation();
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/workspaces/${encodeURIComponent(state.workspaceId)}/history`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) await parseResponse(response);
+      resetConversation();
+    } catch (error) {
+      showToast("Clear history failed", friendlyError(error), "error");
+    }
+  }
+
   function resetConversation() {
     els.conversation.replaceChildren();
     els.welcomeState.classList.remove("hidden");
     renderCitations([]);
     els.chatScroll.scrollTop = 0;
   }
+
+  window.addEventListener(
+    "techpilot:conversation-changed",
+    () => {
+      resetConversation();
+      loadConversationHistory();
+    }
+  );
 
   function bindEvents() {
     els.navItems.forEach((item) => item.addEventListener("click", () => switchView(item.dataset.view)));
@@ -782,7 +893,7 @@
         els.askForm.requestSubmit();
       }
     });
-    els.clearConversation.addEventListener("click", resetConversation);
+    els.clearConversation.addEventListener("click", clearConversationHistory);
 
     [els.workspaceButton, els.researchWorkspaceButton, els.knowledgeWorkspaceButton, els.composerWorkspaceButton]
       .filter(Boolean)

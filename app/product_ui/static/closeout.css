@@ -1,0 +1,22 @@
+.tp-login-locked .app-shell { filter: blur(12px); pointer-events: none; user-select: none; }
+.tp-login-overlay { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 24px; background: rgba(235,241,248,.78); backdrop-filter: blur(20px); }
+.tp-login-card { width: min(440px, 100%); padding: 34px; border: 1px solid rgba(76,104,142,.18); border-radius: 28px; background: rgba(255,255,255,.88); box-shadow: 0 24px 80px rgba(56,78,108,.18); color: #1d2b3f; }
+.tp-login-brand { font-size: 28px; font-weight: 800; letter-spacing: -.03em; }
+.tp-login-kicker { margin: 8px 0 22px; font-size: 11px; letter-spacing: .16em; color: #718096; }
+.tp-login-card h1 { margin: 0 0 10px; font-size: 30px; }
+.tp-login-copy { margin: 0 0 24px; line-height: 1.65; color: #607089; }
+.tp-login-card form { display: grid; gap: 14px; }
+.tp-login-card label { display: grid; gap: 7px; font-size: 13px; font-weight: 700; color: #53647b; }
+.tp-login-card input { box-sizing: border-box; width: 100%; border: 1px solid #cfd9e6; border-radius: 14px; padding: 12px 14px; font: inherit; color: #1d2b3f; background: #fff; outline: none; }
+.tp-login-card input:focus { border-color: #7c98bd; box-shadow: 0 0 0 4px rgba(124,152,189,.12); }
+.tp-login-card button[type=submit] { margin-top: 6px; border: 0; border-radius: 14px; padding: 13px 16px; font: inherit; font-weight: 800; cursor: pointer; background: #263b55; color: #fff; }
+.tp-login-hint { margin: -3px 0 0; font-size: 12px; color: #7b8797; }
+.tp-login-error { min-height: 18px; margin: 0; font-size: 12px; color: #a64242; }
+.tp-login-language { margin-top: 18px; border: 0; padding: 0; background: transparent; color: #546b89; cursor: pointer; font: inherit; font-size: 13px; }
+.tp-closeout-chrome { position: fixed; top: 16px; right: 18px; z-index: 9000; display: flex; align-items: center; gap: 8px; }
+.tp-demo-label { padding: 7px 10px; border-radius: 999px; background: rgba(255,255,255,.78); border: 1px solid rgba(86,107,136,.16); color: #708096; font-size: 11px; letter-spacing: .06em; backdrop-filter: blur(12px); }
+.tp-chrome-button { border: 1px solid rgba(86,107,136,.16); border-radius: 999px; padding: 7px 10px; background: rgba(255,255,255,.82); color: #41536c; cursor: pointer; font: inherit; font-size: 12px; backdrop-filter: blur(12px); }
+@media (max-width: 900px) { .tp-demo-label { display: none; } .tp-closeout-chrome { top: 10px; right: 10px; } }
+.conversation-controls{display:flex;align-items:center;gap:8px}
+.conversation-select{max-width:250px;padding:10px 12px;border:1px solid rgba(91,112,150,.2);border-radius:14px;background:rgba(255,255,255,.5);font:inherit;color:inherit}
+@media(max-width:900px){.conversation-controls{width:100%}.conversation-select{max-width:none;flex:1}}
