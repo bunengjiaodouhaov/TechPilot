@@ -6,7 +6,7 @@ v0.7-dev
 
 ## 当前阶段
 
-P4 Research Agent / Day37.5 Product UI 已关闭；Evaluation Backfill = COMPLETE；下一步恢复 P5 Day38–42：JD Structured Output / 岗位与项目证据。
+P5 Day38 engineering contract 已通过全量回归；真实 JD / 真实岗位发现评测尚未闭合。Day38 = CONDITIONAL PASS，P5 Gate = OPEN。
 
 ## 阶段状态
 
@@ -21,7 +21,8 @@ P4 Research Agent / Day37.5 Product UI 已关闭；Evaluation Backfill = COMPLET
 - P3 Code RAG：Day 18–25 repository boundary / Repo Explorer / trace / code retrieval / module structure / static call clues 已完成
 - P4 Research Agent：Day30–37 = PASS WITH KNOWN LIMITATIONS
 - Evaluation Backfill：COMPLETE
-- 下一步：Day38 P5 JD Structured Output / 岗位与项目证据
+- P5 Day38：engineering contract = PASS；real-business validation = OPEN；overall = CONDITIONAL PASS
+- 下一步：连接真实 Job Discovery source，建立真实 JD seed 并完成 extraction evaluation
 
 ## 已完成
 
@@ -811,3 +812,135 @@ Evaluation Backfill 到此停止，不再做：
 后续只有在 P5/P6 真实业务链路暴露具体 regression 时，才重新打开对应 capability。
 
 <!-- EVAL_BACKFILL_20260822_END -->
+
+<!-- P5_DAY38_20260824_START -->
+## P5 Day38 — JD Structured Output / Job Workflow Foundation
+
+### 状态
+
+```text
+Engineering contract       PASS
+Full regression            PASS
+Real JD validation         OPEN
+Real Job Discovery         OPEN
+Day38 overall              CONDITIONAL PASS
+P5 Gate                    OPEN
+```
+
+### 已完成
+
+- 冻结 provider-neutral JD structured extraction contract。
+- `StructuredJD` / `JDRequirement` 使用 Pydantic validation。
+- requirement 保留：
+  - normalized skill
+  - category
+  - required/preferred
+  - importance
+  - original `EvidenceSpan(text/start/end)`
+- DeepSeek adapter 输出经过 schema gate；malformed output 只做 bounded repair。
+- evidence span 必须与原 JD 绑定；不允许通过伪造 `start=0` 等方式“修好”无效模型输出。
+- 建立 deterministic skill normalization 第一版。
+- 建立 Job domain：
+  - `UserJobIntent / JobSearchSpec`
+  - `JobRecord`
+  - `JobDiscoveryProvider`
+  - normalization / quality / deduplication pipeline
+  - optional capability profile matching
+  - ranking / recommendation service
+- Mock discovery 仅作为 contract test provider；production 不默认接 Mock。
+- 最终 P5 Job/JD 层不依赖 Code RAG / `EvidencePack` / `CodeEvidence` / Research Agent runtime。
+
+### 本轮 architecture correction
+
+曾错误引入：
+
+- `app/job/agent/`
+- `app/job/tools/`
+- Job -> Harness / EvidencePack adapter
+- 重复 intelligence / recommendation 模块
+- production Mock provider wiring
+
+全部从最终净设计移除。
+
+原因：
+
+> JD extraction 是固定输入 → structured extraction → validation / bounded repair 的 constrained workflow；Job Discovery 是 provider boundary。当前没有业务理由为 P5 再造第二套 Agent/Harness。
+
+### Regression repairs
+
+- PDF/OCR direct-parser compatibility 与 production OCR threshold 分离。
+- loopback Qdrant HTTP/SDK 请求绕过 environment proxy，消除 localhost 502。
+- PostgreSQL dependency health probe 使用独立 `NullPool` engine，避免 pooled asyncpg connection 跨 event loop 复用。
+- Full regression：100% PASS。
+- `git diff --check`：PASS。
+
+### 未完成 / 不允许夸大
+
+- 尚未接 production real Job Discovery provider。
+- 尚未建立总控手册要求的真实 JD seed / 30–50 real JD evaluation。
+- 当前 synthetic / fake-provider tests 只证明 contract，不是 real-world product validation。
+- 尚不能宣布 P5 Gate PASS。
+- Job matching 与 Code RAG 无关；不得恢复该耦合。
+
+### 下一步
+
+```text
+real user query
+→ real job source
+→ real JD
+→ StructuredJD
+→ extraction evaluation
+→ failure attribution
+→ bounded optimization
+```
+<!-- P5_DAY38_20260824_END -->
+
+<!-- P5_PRODUCT_BOUNDARY_20260824 -->
+### P5 Product Boundary Correction
+
+P5 正式产品需求冻结为：
+
+1. Job Intent → real job recommendation；
+2. Resume → real job recommendation；
+3. Resume + JD → fit analysis / match score / gaps。
+
+Code RAG 与 P5 完全独立，不参与上述任一链路，也不规划 `JD requirement → repository evidence`。
+
+<!-- TECHPILOT_JOB_INTELLIGENCE_CLOSEOUT_START -->
+## 2026-08-24 — Job Intelligence Prototype Closeout (supersedes active P5 roadmap)
+
+**Status: CLOSED AS A BUSINESS PROTOTYPE — NOT A PRODUCT GATE PASS.**
+
+The earlier active roadmap language describing P5 as `JD requirement -> repository evidence` is superseded. Job Intelligence and Code RAG are separate capabilities.
+
+Frozen Job Intelligence flows:
+
+```text
+A. intent -> real jobs -> structured JD -> rank/recommend
+B. resume -> profile -> real jobs -> match/rank/recommend
+C. resume + JD -> fit / satisfied / gaps / explanation
+```
+
+Real validation evidence:
+
+| Source/flow | Result |
+| --- | --- |
+| Nowcoder acquisition | 10/10 live jobs |
+| Nowcoder structural | 5/5 grounded JDs, 0 model repair |
+| Nowcoder Flow A | 5 jobs, 0 analysis failures |
+| Shixiseng acquisition | 8/10 live jobs |
+| Shixiseng structural | 5 grounded successes across 6 evaluated; 1 retained failure |
+| Shixiseng Flow A | 4 jobs, 0 analysis failures |
+| BOSS HTTP | blocked by security challenge; no bypass |
+| BOSS browser v8 | 18 listings, 0 reliable full JDs |
+| Resume E2E | PDF read succeeded; profile evidence binding failed |
+| Flow B/C | NOT CLOSED |
+
+Product conclusion:
+
+The dominant unresolved problem became Chinese recruitment-source coverage, especially stable BOSS full-JD discovery. Continuing would shift the project toward browser/site acquisition engineering rather than the intended applied-AI focus.
+
+Next candidate direction: **AI Coding**, but implementation is blocked on a product-differentiation thesis versus Codex / Claude Code / Cursor.
+
+See `docs/P5_JOB_INTELLIGENCE_CLOSEOUT.md`.
+<!-- TECHPILOT_JOB_INTELLIGENCE_CLOSEOUT_END -->

@@ -1200,13 +1200,13 @@ provenance integrity 100%
 
 ### 30 秒项目介绍
 
-> TechPilot 是一个面向开发者技术调研和代码理解的 evidence-grounded LLM 系统。我从文档 RAG 做起，自己实现了 Dense/BM25/RRF/Reranker、Evidence Verifier 和 Citation binding；之后做了只读 Code RAG，把 AST 结构检索、语义检索和 authoritative source materialization 接进统一 Tool Harness；P4 再用 LangGraph 做 bounded Research Agent。这个项目我比较强调评测和 failure attribution，比如 400-case retrieval 上 Recall@5 从 61.5% 提到 83.4%，Code RAG realistic hard set File/Content Hit 是 93.3%，Agent 对无法由仓库证明的 production claims 做到了 0 false completion。现在已完成评测回填，下一阶段进入真实 JD 能力分析闭环。
+> TechPilot 是一个面向开发者技术调研和代码理解的 evidence-grounded LLM 系统。我从文档 RAG 做起，自己实现了 Dense/BM25/RRF/Reranker、Evidence Verifier 和 Citation binding；之后做了只读 Code RAG，把 AST 结构检索、语义检索和 authoritative source materialization 接进统一 Tool Harness；P4 再用 LangGraph 做 bounded Research Agent。这个项目我比较强调评测和 failure attribution，比如 400-case retrieval 上 Recall@5 从 61.5% 提到 83.4%，Code RAG realistic hard set File/Content Hit 是 93.3%，Agent 对无法由仓库证明的 production claims 做到了 0 false completion。评测回填已完成；Job Intelligence 真实业务 prototype 已冻结；下一阶段先论证 AI Coding 相对 Codex/Claude Code/Cursor 的差异化价值。
 
 ---
 
 ### 2 分钟项目介绍骨架
 
-1. **业务问题**：开发者技术调研、理解代码仓库、后续把 JD 要求映射到自己的项目证据。
+1. **业务问题**：开发者技术调研、代码仓库理解，以及独立验证过的 Job Intelligence 业务 prototype。
 2. **RAG**：PostgreSQL 是事实来源，Qdrant 是可重建索引；Dense → BM25/RRF → CrossEncoder；Evidence Verifier 决定能不能回答。
 3. **Code RAG**：不能把 retrieval hit 当 evidence；所有 candidate 必须再走 `read_file`，绑定 file/symbol/line/snippet；AST 只提供 structural clue。
 4. **Agent**：LLM 只负责 semantic next action；Harness 负责 schema/permission/timeout；Control 负责 max steps/retry/termination；Evidence 决定事实。
@@ -1215,3 +1215,210 @@ provenance integrity 100%
 7. **当前边界**：不是通用 Coding Agent，不执行 shell/write/git；Research Agent 对复杂 goal drift 仍有限制；下一步进入 JD 结构化与能力证据业务。
 
 <!-- EVAL_BACKFILL_20260822_END -->
+
+<!-- P5_DAY38_20260824_START -->
+## Day 38：JD Structured Output / Job Intelligence
+
+### Q：为什么 JD extraction 不直接做成 Agent？
+
+因为当前控制流是确定的：
+
+```text
+JD text
+→ LLM structured extraction
+→ schema validation
+→ bounded repair
+→ result / fail
+```
+
+它没有“根据 evidence gap 动态决定下一工具”的必要。把固定 workflow 包成 Agent 只会增加 state、tool、trace 和 failure surface。
+
+我的原则是：
+
+> Dynamic decision 才值得 Agent；固定转换优先 constrained workflow。
+
+### Q：为什么模型返回 JSON 还需要 Pydantic？
+
+JSON 只说明语法可能有效，不说明业务 contract 有效。
+
+例如模型可能返回：
+
+- 非法 enum；
+- `evidence_span` 类型错误；
+- required/preferred 值超出允许集合；
+- 缺字段；
+- 多余字段。
+
+所以模型输出进入 domain 前必须：
+
+```text
+raw model output
+→ JSON decode
+→ Pydantic validation
+→ bounded repair
+→ final typed object
+```
+
+### Q：bounded repair 和 retry 有什么区别？
+
+Retry 通常重新执行同一 provider operation；repair 是针对一个已返回但结构不合法的候选结果做一次受约束修复。
+
+关键是：
+
+- repair 次数有限；
+- repair 只能修能确定的结构问题；
+- 不为了过 schema 猜测缺失业务语义；
+- repair 仍然必须再次 validation。
+
+### Q：为什么 evidence span 比 normalized skill 更重要？
+
+`normalized_skill="RAG"` 是系统归一化结果，不是 JD 原文事实。
+
+必须保留：
+
+```text
+original JD
+→ exact evidence span
+→ normalized capability
+```
+
+这样才能回答：
+
+- 这个 requirement 真的是 JD 写的吗？
+- required/preferred 判断基于哪句话？
+- evaluator 如何检测 hallucination？
+- 后续 UI 如何展示来源？
+
+### Q：为什么 Job matching 不接 Code RAG？
+
+这是两个不同问题。
+
+Job matching：
+
+```text
+JD requirements
+↔ user capability profile
+```
+
+Code RAG：
+
+```text
+repository query
+→ authoritative code evidence
+```
+
+P5 不规划 repository evidence workflow。它的正式用户需求只有：岗位要求→岗位推荐、简历→岗位推荐、简历+JD→匹配分析。Code RAG 属于独立的代码理解产品能力，不进入这些链路。
+
+### Q：为什么 Mock provider 测试通过仍不能算真实 Job Discovery？
+
+Mock 只能证明：
+
+- provider interface；
+- normalize/filter/dedupe；
+- service composition；
+- failure-free contract。
+
+它不能证明：
+
+- 当前网页/API 能找到真实岗位；
+- JD 是否完整；
+- source 是否稳定；
+- location/salary/title parsing 是否可靠；
+- 页面变化/anti-bot/过期岗位如何处理。
+
+所以：
+
+> contract test ≠ real-world product validation。
+
+### Q：这次最值得讲的工程失败是什么？
+
+P5 一度因为“项目已经有 Agent Harness”而错误扩展为第二套 Job Agent，并把 Job JD 包装进 Code Evidence。
+
+我最终回到业务控制流重新划边界：
+
+```text
+JD extraction = constrained workflow
+Job discovery = provider abstraction
+Code RAG = independent repository evidence capability
+```
+
+然后删掉重复 Agent/runtime 模块并做全量回归。
+
+这个失败说明我现在会先判断：
+
+1. 业务是否需要动态决策；
+2. domain boundary 是否清楚；
+3. 是否在错误复用基础设施；
+4. tests 是否只证明 contract 还是已经证明真实业务。
+
+### Q：全量测试过程中还发现了什么基础设施问题？
+
+两个比较典型：
+
+1. localhost Qdrant 被系统 HTTP proxy 转发，容器正常但应用请求返回 502。最终仅对 loopback URL 禁用 proxy env。
+2. dependency health 使用业务 asyncpg pool，sync TestClient loop 创建的 connection 被另一个 pytest asyncio loop 复用，触发 `Future attached to a different loop`。最终 health probe 使用独立 `NullPool`，业务 pool 保留。
+
+这两个问题都属于：
+
+> dependency 进程“在运行”不等于 application connectivity / async lifecycle 正确。
+
+### Day38 当前面试表述边界
+
+可以说：
+
+- 实现了 typed JD structured extraction；
+- 有 Pydantic validation / bounded repair / exact evidence binding；
+- 建立了 provider-neutral Job Discovery 与 optional profile matching foundation；
+- full regression 已通过。
+
+暂时不要说：
+
+- 已完成真实岗位推荐系统；
+- 已覆盖 30–50 份真实 JD；
+- production Job Discovery 已上线；
+- P5 Gate 已 PASS；
+- Job Agent 已完成。
+
+这些都缺真实业务证据。
+<!-- P5_DAY38_20260824_END -->
+
+<!-- TECHPILOT_JOB_INTELLIGENCE_INTERVIEW_START -->
+## Job Intelligence closeout — interview framing
+
+### Q: P5 最后做完了吗？
+
+不能说“完整做完”。
+
+准确表述：
+
+> 我把 Job Intelligence 做到了真实业务 prototype：牛客和实习僧的真实岗位能完成 acquisition -> 中文 JD structured extraction -> evidence binding -> Flow A 推荐链路；但 Resume Flow B/C 的真实 E2E 没有关闭，BOSS 的稳定 full-JD discovery 也没有解决，所以我没有把它包装成 production-ready P5 PASS。
+
+### Q: 为什么没有继续把 BOSS 爬通？
+
+> 因为真实验证后，系统的主要瓶颈已经从模型/JD matching 转移到了招聘站数据获取。继续投入会把项目重心变成 DOM、登录态、security challenge 和页面适配。我做了 browser connector 验证这种路径能拿到 listing，但它削弱了“系统主动帮用户找岗位”的产品价值。因此我选择冻结 prototype，把这个 failure 当作产品边界，而不是为了完成 roadmap 强行继续。
+
+### Q: 这个阶段最有价值的技术问题是什么？
+
+- 不信任模型字符 offset，应用确定性绑定 evidence；
+- source failure 不能伪装成 zero match；
+- internet real-data gate 不能要求任意前 N 条 100%；
+- batch analysis 必须隔离单条失败；
+- full regression 不能替代 real-business validation；
+- source coverage 是独立于模型质量的产品指标。
+
+### Q: Job Intelligence 和 Code RAG 是不是连在一起？
+
+不是。
+
+Job Intelligence 的输入是岗位意图/简历/JD；Code RAG 是仓库理解能力。没有 `JD requirement -> repository evidence` 的 P5 产品链路。
+
+### Q: 下一步为什么考虑 AI Coding？
+
+因为它自然复用 TechPilot 已经完成的 Code RAG、RepositoryReadBoundary、ToolRuntime、EvidencePack 和 bounded agent control。
+
+但真正的第一题不是“能不能写代码”，而是：
+
+> 为什么用户不用 Codex / Claude Code / Cursor？
+
+如果差异只剩“也会 search/edit/test”，这个方向就不成立。必须先证明 TechPilot 在某类 coding workload 上有可评测的独特价值，再进入 implementation。
+<!-- TECHPILOT_JOB_INTELLIGENCE_INTERVIEW_END -->

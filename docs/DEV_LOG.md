@@ -1306,3 +1306,155 @@ Evaluation Backfill = COMPLETE。
 下一步恢复 P5 Day38：JD Structured Output / 岗位与项目证据。真实 JD、结构化输出、证据绑定和业务评测优先；不再继续扩 benchmark。
 
 <!-- EVAL_BACKFILL_20260822_END -->
+
+<!-- P5_DAY38_20260824_START -->
+## Day 38：JD Structured Output / Job Workflow Foundation
+
+### 完成
+
+- 建立最小 JD domain schema 与 provider-neutral extractor boundary。
+- DeepSeek structured extraction 经过 Pydantic validation。
+- malformed model output 使用 bounded repair，不做无限 retry。
+- requirement 保留 exact original evidence span，归一化 skill 不能替代原始证据。
+- 建立 deterministic skill normalizer 第一版。
+- 建立 Job intent / search spec / discovery provider / normalize-filter-dedupe pipeline。
+- 建立 optional capability profile matching、ranking、recommendation domain service。
+- focused P5 tests：PASS。
+- full pytest：100% PASS。
+- `git diff --check`：PASS。
+
+### 真实失败与修复
+
+#### 1. P5 scope drift：错误 Agent 化
+
+问题：
+
+- 在没有真实动态决策需求前提下新增 Job Agent / tools / Harness adapter；
+- 尝试把 Job/JD 结果包装进 Code `EvidencePack`；
+- 出现 intelligence/recommendation/discovery 多套重复模块；
+- production composition 曾接入 Mock provider。
+
+判定：
+
+```text
+architecture / product-scope failure
+```
+
+修复：
+
+- 删除第二套 Job Agent / tools / Harness；
+- Job/JD 与 Code RAG 完全解耦；
+- Mock provider 只保留测试用途；
+- 恢复 constrained workflow + provider abstraction。
+
+经验：
+
+> “系统已经有 Agent Harness”不等于每个新业务都应该 Agent 化。先看控制流是否真的需要动态 next-action；固定抽取流程优先 Workflow。
+
+#### 2. Structured output schema mismatch
+
+真实 DeepSeek 输出曾返回非法 enum / type。
+
+修复：
+
+- Prompt 明确 exact JSON schema 与允许 enum；
+- provider output 必须经过 Pydantic gate；
+- repair 只修可确定的结构错误，不进行语义猜测。
+
+经验：
+
+> LLM JSON ≠ business-valid structured output。Schema validation 才是模型输出进入业务域的边界。
+
+#### 3. Evidence span repair 不能伪造 offset
+
+早期 repair 可能把 string evidence 转为 `{start: 0, end: len(text)}`，但这不保证原 JD 的真实位置。
+
+最终原则：
+
+```text
+evidence span must bind to source text
+otherwise repair / fail closed
+```
+
+#### 4. PDF/OCR regression
+
+P4 OCR threshold 与旧 direct `PDFParser()` contract 冲突，短 native text 被误判为空，需要 OCR。
+
+修复：
+
+- direct parser 保持旧 contract；
+- production router 显式保留 OCR threshold；
+- OCR fallback 能力不回退。
+
+#### 5. Qdrant localhost 502
+
+Docker Qdrant 正常，但 application / health HTTP 请求返回 502。
+
+归因：
+
+- `HTTP_PROXY/HTTPS_PROXY` 被 HTTPX/Qdrant client 默认读取；
+- localhost traffic 被路由到系统 proxy。
+
+修复：
+
+- loopback URL 使用 `trust_env=False`；
+- remote Qdrant 仍保留 proxy environment。
+
+#### 6. asyncpg Future attached to a different loop
+
+health test 使用 sync TestClient loop，随后 async integration test 在另一个 loop 复用全局业务 pool 中的 asyncpg connection。
+
+修复：
+
+- 不把整个 application engine 改成 `NullPool`；
+- PostgreSQL health probe 单独使用 `NullPool` engine；
+- application engine 保持正常 pool 性能。
+
+经验：
+
+> 测试中的 event-loop 生命周期也是 async infrastructure contract；health probe 不应污染业务连接池。
+
+### 当前判定
+
+```text
+Day38 engineering contract = PASS
+Day38 real-business validation = OPEN
+Day38 = CONDITIONAL PASS
+P5 Gate = OPEN
+```
+
+测试 100% 不能替代总控手册要求的真实 JD 数据与业务评测。
+
+### 下一任务
+
+连接真实岗位来源，建立 5–10 条 current real JD seed，跑 extraction evaluator；之后扩到 P5 目标的 30–50 条真实 JD。
+<!-- P5_DAY38_20260824_END -->
+
+<!-- P5_PRODUCT_BOUNDARY_20260824 -->
+### P5 requirement correction
+
+用户需求重新冻结：P5 只解决岗位要求→岗位推荐、简历→岗位推荐、简历+JD→匹配分析三类问题。Code RAG 是独立产品能力；后续 roadmap 不再包含 JD requirement 与 repository evidence 的连接。
+
+<!-- TECHPILOT_JOB_INTELLIGENCE_DEVLOG_START -->
+## 2026-08-24 — Job Intelligence real-business closeout
+
+P5 was exercised against real Chinese recruitment sources instead of being closed on tests alone.
+
+Key failures discovered from real inputs:
+
+1. LLM character offsets were unreliable on long JDs. Fix: deterministic source rebind; application owns authoritative offsets.
+2. One malformed real JD originally crashed Flow A. Fix: per-job analysis isolation.
+3. Re-fetching volatile recruitment pages caused source failures to look like legitimate `0 jobs`. Fix: same-run snapshots + explicit source failure.
+4. A rigid “first five internet JDs must be 5/5” gate was invalid. Fix: bounded evaluation until five grounded successes while retaining failures.
+5. BOSS direct HTTP access hit security challenges; the system did not bypass them.
+6. BOSS browser v8 captured 18 listing jobs but no reliable full JDs.
+7. Synthetic resume PDF parsing worked, but ResumeProfile extraction failed source-evidence binding after one bounded repair.
+
+Decision:
+
+Job Intelligence is frozen as a real-business prototype, not promoted to production/product PASS. Flow A has real-source evidence on Nowcoder and Shixiseng; B/C remain open.
+
+The next project candidate is AI Coding, but the first task is competitive/product differentiation, not implementation.
+
+No Git write is implied by this log entry.
+<!-- TECHPILOT_JOB_INTELLIGENCE_DEVLOG_END -->

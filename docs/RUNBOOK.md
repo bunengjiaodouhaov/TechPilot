@@ -959,3 +959,112 @@ DELETE /workspaces/{workspace_id}
 
 浏览器如果仍显示旧 Day37.5 CSS，执行一次 hard refresh（macOS Chrome/Safari 常用 `Cmd + Shift + R`）。
 <!-- DAY37_5_PRODUCT_UI_END -->
+
+<!-- P5_DAY38_RUNBOOK_20260824_START -->
+## P5 Day38 / full regression validation
+
+启动依赖：
+
+```bash
+docker compose up -d
+alembic upgrade head
+```
+
+检查 Qdrant 直连（绕过系统 proxy）：
+
+```bash
+curl --noproxy '*' -fsS http://127.0.0.1:6333/healthz
+```
+
+P5 focused：
+
+```bash
+pytest -q tests/jd tests/job
+```
+
+全仓库：
+
+```bash
+pytest -q
+git diff --check
+```
+
+P5 forbidden-coupling check：
+
+```bash
+grep -R \
+  -nE "app\.harness|EvidencePack|CodeEvidence|app\.repository" \
+  app/jd app/job || true
+```
+
+预期为空。
+
+### localhost Qdrant / proxy troubleshooting
+
+若容器正常但应用得到 `502 Bad Gateway`：
+
+```bash
+env | grep -Ei '^(http_proxy|https_proxy|all_proxy|no_proxy)=' || true
+curl -v http://127.0.0.1:6333/healthz
+curl --noproxy '*' -v http://127.0.0.1:6333/healthz
+```
+
+若 `--noproxy` 成功而默认请求失败，优先检查 proxy environment；不要先重建 Qdrant 数据。
+
+### asyncpg cross-event-loop troubleshooting
+
+若测试出现：
+
+```text
+Future attached to a different loop
+```
+
+检查是否有 sync `TestClient` dependency probe 使用 application pooled `AsyncEngine`。
+
+当前设计：
+
+```text
+application DB traffic → normal pooled AsyncEngine
+health PostgreSQL probe → independent NullPool engine
+```
+
+不要为了测试方便把整个生产 application engine 改成 `NullPool`。
+<!-- P5_DAY38_RUNBOOK_20260824_END -->
+
+<!-- TECHPILOT_JOB_INTELLIGENCE_RUNBOOK_START -->
+## Job Intelligence closeout / transition runbook
+
+Do not continue expanding recruitment-site adapters by default.
+
+Known current local hygiene issue:
+
+- the BOSS v9 apply script copied extension files and then stopped because `node` was unavailable;
+- therefore the extension directory may contain partially applied/unvalidated v9 files.
+
+Before the next code milestone:
+
+```bash
+cd ~/TechPilot
+git status --short
+git diff --check
+```
+
+Then identify and remove/restore only the incomplete v9 experiment before any commit.
+
+Preserve validated P5 prototype work.
+
+Do not claim Flow B/C PASS unless resume extraction E2E is rerun successfully.
+
+Do not claim BOSS full-JD support based on listing captures.
+
+Next-session entry criteria for AI Coding:
+
+```text
+competitor comparison complete
+-> differentiated product thesis frozen
+-> real-repository evaluation plan defined
+-> only then implement
+```
+
+Git commit/push/merge/tag still requires explicit user authorization.
+<!-- TECHPILOT_JOB_INTELLIGENCE_RUNBOOK_END -->

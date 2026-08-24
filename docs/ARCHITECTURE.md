@@ -914,3 +914,130 @@ Knowledge Base 当前没有 persistent listing API，因此 UI 只能将当前�
 
 前端目录统一为 `app/product_ui/`，替代 Day37.5 迭代期的 `app/web/`。
 <!-- DAY37_5_PRODUCT_UI_END -->
+
+<!-- P5_DAY38_ARCH_20260824_START -->
+## P5 Job/JD boundary (Day38)
+
+P5 当前采用独立 domain workflow，不创建第二套 Agent runtime。
+
+```text
+User goal / query
+      ↓
+QueryParser
+      ↓
+UserJobIntent / JobSearchSpec
+      ↓
+JobDiscoveryProvider
+      ↓
+RawJobResult
+      ↓
+JobDiscoveryPipeline
+  ├─ normalization
+  ├─ quality filter
+  └─ deduplication
+      ↓
+JobRecord
+      ↓
+JobJDService
+      ↓
+JDExtractor
+      ↓
+StructuredJD
+  └─ JDRequirement[]
+       ├─ normalized_skill
+       ├─ category
+       ├─ requirement_type
+       ├─ importance
+       └─ EvidenceSpan(text/start/end)
+```
+
+Optional matching：
+
+```text
+StructuredJD requirements
+        +
+UserCapabilityProfile
+        ↓
+JobMatcher
+        ↓
+JobRanker
+        ↓
+JobRecommendation
+```
+
+### JD model boundary
+
+```text
+LLM raw response
+→ JSON decode
+→ Pydantic validation
+→ one bounded structural repair when eligible
+→ source evidence binding validation
+→ StructuredJD / structured failure
+```
+
+Model-generated normalized fields never replace authoritative JD source text.
+
+### Job Discovery boundary
+
+`JobDiscoveryProvider` owns external discovery integration. Domain service only consumes normalized `JobRecord`.
+
+Mock providers are test doubles only and must not be wired as production default behavior.
+
+### Explicit non-coupling
+
+P5 Job/JD domain does not import or emit:
+
+- `EvidencePack`
+- `CodeEvidence`
+- repository Code RAG
+- Research Agent state/runtime
+
+This separation is permanent for P5: repository Code RAG is not a dependency, optional enrichment, evidence source, or future matching stage for job discovery, resume recommendation, or Resume↔JD fit analysis.
+
+### Cross-cutting infrastructure corrections
+
+- Qdrant loopback requests bypass environment HTTP proxies; remote URLs retain normal proxy behavior.
+- dependency PostgreSQL health probe uses isolated `NullPool`, avoiding contamination of the application async connection pool.
+- production PDF routing retains OCR threshold while direct parser contract remains backward compatible.
+<!-- P5_DAY38_ARCH_20260824_END -->
+
+<!-- TECHPILOT_JOB_INTELLIGENCE_ARCH_START -->
+## Job Intelligence architecture boundary — frozen 2026-08-24
+
+Job Intelligence is architecturally independent from Code RAG.
+
+```text
+Job Intelligence
+  intent/resume/JD
+  -> job-source providers
+  -> JD structured extraction
+  -> evidence binding
+  -> profile/JD matching
+  -> ranking/explanation
+
+Code RAG
+  repository query
+  -> repository search/structure
+  -> authoritative read_file
+  -> CodeEvidence/EvidencePack
+```
+
+No cross-flow from JD requirements into repository evidence is part of P5.
+
+Real-source providers exposed an additional boundary:
+
+```text
+source acquisition health
+!=
+JD extraction quality
+!=
+matching quality
+```
+
+Source failures must remain observable and must not collapse into `no match`.
+
+The BOSS browser connector is recorded as an experiment, not a production source. v8 demonstrated listing capture only; v9 was not validated.
+
+The next candidate architecture direction is AI Coding. Do not add write/shell/patch capabilities until the product thesis versus mature coding agents is frozen.
+<!-- TECHPILOT_JOB_INTELLIGENCE_ARCH_END -->
