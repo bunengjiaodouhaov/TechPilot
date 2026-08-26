@@ -9,14 +9,19 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.answering.llm import SYSTEM_PROMPT, build_user_prompt
 from app.api.dependencies import get_embedding_provider, get_llm_provider
+from app.auth.dependencies import AuthPrincipal, get_current_user
 from app.repository.code_hybrid import CodeHybridRetrievalService
 from app.repository.code_index import InMemoryCodeDenseIndex, InMemoryCodeKeywordIndex
-from app.repository.code_retrieval import CodeIndexBuildReport, CodeIndexingService, CodeRetrievalService
+from app.repository.code_retrieval import (
+    CodeIndexBuildReport,
+    CodeIndexingService,
+    CodeRetrievalService,
+)
 from app.repository.read_boundary import RepositoryReadBoundary
 
 router = APIRouter(prefix="/repository", tags=["repository-product"])
@@ -98,8 +103,28 @@ def _manifest_for(directory: Path) -> dict[str, object] | None:
     return payload
 
 
-def _uploaded_root(repository_id: str) -> Path:
-    if not repository_id or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in repository_id):
+def _manifest_visible_to(
+    manifest: dict[str, object],
+    *,
+    principal: AuthPrincipal,
+) -> bool:
+    owner = manifest.get("owner_user_id")
+    if owner is None:
+        # Pre-P6 local repositories did not record an owner. Preserve them only
+        # for the explicit portfolio demo principal rather than exposing them
+        # to every newly registered user.
+        return principal.is_demo
+    try:
+        return int(owner) == principal.id
+    except (TypeError, ValueError):
+        return False
+
+
+def _uploaded_root(repository_id: str, *, principal: AuthPrincipal) -> Path:
+    if not repository_id or any(
+        ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        for ch in repository_id
+    ):
         raise HTTPException(status_code=404, detail="repository not found")
     base = _store_root()
     candidate = (base / repository_id).resolve()
@@ -108,27 +133,36 @@ def _uploaded_root(repository_id: str) -> Path:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="repository not found") from exc
     source = candidate / "source"
-    if not source.is_dir() or _manifest_for(candidate) is None:
+    manifest = _manifest_for(candidate)
+    if (
+        not source.is_dir()
+        or manifest is None
+        or not _manifest_visible_to(manifest, principal=principal)
+    ):
         raise HTTPException(status_code=404, detail="repository not found")
     return source
 
 
-def _repository_root(repository_id: str) -> Path:
+def _repository_root(repository_id: str, *, principal: AuthPrincipal) -> Path:
     if repository_id == "techpilot":
         return _builtin_root()
-    return _uploaded_root(repository_id)
+    return _uploaded_root(repository_id, principal=principal)
 
 
-def _repository_name(repository_id: str) -> str:
+def _repository_name(repository_id: str, *, principal: AuthPrincipal) -> str:
     if repository_id == "techpilot":
         return _builtin_root().name
-    directory = _store_root() / repository_id
-    manifest = _manifest_for(directory) or {}
+    source = _uploaded_root(repository_id, principal=principal)
+    manifest = _manifest_for(source.parent) or {}
     return str(manifest.get("name") or repository_id)
 
 
-async def _build_runtime(repository_id: str) -> _RepositoryRuntime:
-    boundary = RepositoryReadBoundary(_repository_root(repository_id))
+async def _build_runtime(
+    repository_id: str,
+    *,
+    root: Path,
+) -> _RepositoryRuntime:
+    boundary = RepositoryReadBoundary(root)
     keyword = InMemoryCodeKeywordIndex()
     dense = InMemoryCodeDenseIndex()
     retrieval = CodeRetrievalService(
@@ -157,12 +191,16 @@ async def _build_runtime(repository_id: str) -> _RepositoryRuntime:
 async def _get_runtime(
     repository_id: str,
     *,
+    principal: AuthPrincipal,
     rebuild: bool = False,
 ) -> _RepositoryRuntime:
+    # Authorization happens before consulting the shared in-process cache. A
+    # cached runtime must never become a cross-user capability leak.
+    root = _repository_root(repository_id, principal=principal)
     async with _runtime_lock:
         runtime = _runtimes.get(repository_id)
         if rebuild or runtime is None:
-            runtime = await _build_runtime(repository_id)
+            runtime = await _build_runtime(repository_id, root=root)
             _runtimes[repository_id] = runtime
         return runtime
 
@@ -232,7 +270,9 @@ def _excerpt(
 
 
 @router.get("/repositories", response_model=list[RepositorySummary])
-async def list_repositories() -> list[RepositorySummary]:
+async def list_repositories(
+    principal: AuthPrincipal = Depends(get_current_user),
+) -> list[RepositorySummary]:
     results = [
         RepositorySummary(
             repository_id="techpilot",
@@ -245,7 +285,11 @@ async def list_repositories() -> list[RepositorySummary]:
         if not directory.is_dir():
             continue
         manifest = _manifest_for(directory)
-        if not manifest or not (directory / "source").is_dir():
+        if (
+            not manifest
+            or not (directory / "source").is_dir()
+            or not _manifest_visible_to(manifest, principal=principal)
+        ):
             continue
         results.append(
             RepositorySummary(
@@ -265,6 +309,7 @@ async def list_repositories() -> list[RepositorySummary]:
 )
 async def upload_repository(
     file: UploadFile = File(...),
+    principal: AuthPrincipal = Depends(get_current_user),
 ) -> RepositorySummary:
     filename = file.filename or ""
     if not filename.lower().endswith(".zip"):
@@ -289,14 +334,17 @@ async def upload_repository(
         except zipfile.BadZipFile as exc:
             raise HTTPException(status_code=422, detail="invalid zip archive") from exc
         _collapse_single_root(source)
-        # Validate the resulting root through the existing repository boundary.
         boundary = RepositoryReadBoundary(source)
         if not any(path.endswith(".py") for path in boundary.list_files()):
             raise HTTPException(status_code=422, detail="repository contains no readable Python files")
         name = Path(filename).stem.strip() or f"repository-{repository_id}"
         (directory / _MANIFEST).write_text(
             json.dumps(
-                {"repository_id": repository_id, "name": name},
+                {
+                    "repository_id": repository_id,
+                    "name": name,
+                    "owner_user_id": principal.id,
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -320,21 +368,30 @@ async def upload_repository(
     "/repositories/{repository_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_repository(repository_id: str) -> None:
+async def delete_repository(
+    repository_id: str,
+    principal: AuthPrincipal = Depends(get_current_user),
+) -> None:
     if repository_id == "techpilot":
-        raise HTTPException(status_code=409, detail="built-in TechPilot repository cannot be deleted")
-    source = _uploaded_root(repository_id)
+        raise HTTPException(
+            status_code=409,
+            detail="built-in TechPilot repository cannot be deleted",
+        )
+    source = _uploaded_root(repository_id, principal=principal)
     directory = source.parent
     _runtimes.pop(repository_id, None)
     shutil.rmtree(directory)
 
 
 @router.get("/status")
-async def repository_status(repository_id: str = "techpilot") -> dict[str, object]:
-    runtime = await _get_runtime(repository_id)
+async def repository_status(
+    repository_id: str = "techpilot",
+    principal: AuthPrincipal = Depends(get_current_user),
+) -> dict[str, object]:
+    runtime = await _get_runtime(repository_id, principal=principal)
     return {
         "repository_id": repository_id,
-        "repository": _repository_name(repository_id),
+        "repository": _repository_name(repository_id, principal=principal),
         "python_files": runtime.report.python_file_count,
         "chunks": runtime.report.chunk_count,
         "parse_errors": runtime.report.parse_error_count,
@@ -343,26 +400,43 @@ async def repository_status(repository_id: str = "techpilot") -> dict[str, objec
 
 
 @router.post("/reindex")
-async def repository_reindex(repository_id: str = "techpilot") -> dict[str, object]:
-    runtime = await _get_runtime(repository_id, rebuild=True)
+async def repository_reindex(
+    repository_id: str = "techpilot",
+    principal: AuthPrincipal = Depends(get_current_user),
+) -> dict[str, object]:
+    runtime = await _get_runtime(
+        repository_id,
+        principal=principal,
+        rebuild=True,
+    )
     return {
         "repository_id": repository_id,
-        "repository": _repository_name(repository_id),
+        "repository": _repository_name(repository_id, principal=principal),
         "python_files": runtime.report.python_file_count,
         "chunks": runtime.report.chunk_count,
     }
 
 
 @router.post("/query", response_model=RepositoryQueryResponse)
-async def repository_query(request: RepositoryQueryRequest) -> RepositoryQueryResponse:
+async def repository_query(
+    request: RepositoryQueryRequest,
+    principal: AuthPrincipal = Depends(get_current_user),
+) -> RepositoryQueryResponse:
     question = request.question.strip()
-    runtime = await _get_runtime(request.repository_id)
+    runtime = await _get_runtime(
+        request.repository_id,
+        principal=principal,
+    )
+    repository_name = _repository_name(
+        request.repository_id,
+        principal=principal,
+    )
     hits = await runtime.hybrid.search(query=question, limit=request.limit)
 
     if not hits:
         return RepositoryQueryResponse(
             repository_id=request.repository_id,
-            repository=_repository_name(request.repository_id),
+            repository=repository_name,
             answer="现有代码索引中没有足够证据回答这个问题。",
             refused=True,
             citations=[],
@@ -374,7 +448,12 @@ async def repository_query(request: RepositoryQueryRequest) -> RepositoryQueryRe
     prompt_sources: list[str] = []
     for index, hit in enumerate(hits, start=1):
         source_id = f"SOURCE_{index}"
-        excerpt = _excerpt(runtime.boundary, hit.file_path, hit.line_start, hit.line_end)
+        excerpt = _excerpt(
+            runtime.boundary,
+            hit.file_path,
+            hit.line_start,
+            hit.line_end,
+        )
         evidence.append(
             RepositoryEvidence(
                 source_id=source_id,
@@ -411,7 +490,7 @@ async def repository_query(request: RepositoryQueryRequest) -> RepositoryQueryRe
 
     return RepositoryQueryResponse(
         repository_id=request.repository_id,
-        repository=_repository_name(request.repository_id),
+        repository=repository_name,
         answer=llm_answer.text,
         refused=llm_answer.refused,
         citations=[item for item in evidence if item.source_id in cited],
