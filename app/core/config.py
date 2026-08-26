@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     bm25_k1: float = 1.5
     bm25_b: float = 0.75
 
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     reranker_batch_size: int = 8
     reranker_max_length: int = 512
     answer_retrieval_candidate_limit: int = 40
