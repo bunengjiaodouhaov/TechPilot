@@ -231,11 +231,10 @@ class AnswerService:
     ) -> BuiltContext | None:
         """Use broad anchors to add a small amount of sibling evidence.
 
-        The second retrieval is used only to locate document structure. Its
-        reranked results are not themselves treated as sufficient evidence.
-        Selected parent sections are loaded authoritatively from PostgreSQL and
-        appended immediately after the original top evidence so ContextBuilder
-        budget cannot hide recovery additions behind all twenty anchors.
+        Recovery prefers parent sections that were not already represented in
+        the first-pass context. This makes the second chance complementary
+        instead of spending its budget duplicating evidence regions already
+        shown to the verifier.
         """
 
         anchors = await self._retrieval_service.search(
@@ -246,7 +245,15 @@ class AnswerService:
         if not anchors:
             return None
 
-        groups = self._group_parent_sections(anchors)
+        first_pass_parents = {
+            (context.document_id, parent)
+            for context in first_pass_contexts
+            if (parent := self._parent_section(context.section)) is not None
+        }
+        groups = self._group_parent_sections(
+            anchors,
+            existing_parent_sections=first_pass_parents,
+        )
         if not groups:
             return None
 
@@ -258,11 +265,17 @@ class AnswerService:
         if not sibling_chunks:
             return None
 
-        initial_ids = {context.chunk_db_id for context in first_pass_contexts}
+        # The top-N anchors already had a chance to compete in the reranker.
+        # Recovery budget is reserved for new sibling evidence, not duplicate
+        # anchors or first-pass chunks.
+        excluded_ids = {
+            *(context.chunk_db_id for context in first_pass_contexts),
+            *(hit.point_id for hit in anchors),
+        }
         additions = self._rank_recovery_chunks(
             chunks=sibling_chunks,
             selected_groups=selected_groups,
-            exclude_chunk_ids=initial_ids,
+            exclude_chunk_ids=excluded_ids,
         )[: self._recovery_max_additions]
         if not additions:
             return None
@@ -300,12 +313,15 @@ class AnswerService:
     @staticmethod
     def _group_parent_sections(
         anchors: list[VectorSearchHit],
+        *,
+        existing_parent_sections: set[tuple[int, str]] | None = None,
     ) -> list[
         tuple[
             tuple[int, str],
             tuple[tuple[int, int], ...],
         ]
     ]:
+        existing = existing_parent_sections or set()
         groups: dict[tuple[int, str], list[tuple[int, int]]] = {}
         for rank, hit in enumerate(anchors, start=1):
             parent = AnswerService._parent_section(hit.payload.section)
@@ -319,6 +335,7 @@ class AnswerService:
         ordered = sorted(
             groups.items(),
             key=lambda item: (
+                1 if item[0] in existing else 0,
                 -len(item[1]),
                 min(rank for rank, _ in item[1]),
                 item[0][0],
