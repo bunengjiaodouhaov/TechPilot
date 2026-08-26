@@ -14,10 +14,13 @@ from app.retrieval.bm25_repository import BM25ChunkRepository
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def dispose_engine_after_test():
-    """Prevent pooled asyncpg connections leaking across pytest event loops."""
-    yield
+async def isolate_engine_for_test():
+    """Ensure pooled asyncpg connections never cross pytest event loops."""
     await engine.dispose()
+    try:
+        yield
+    finally:
+        await engine.dispose()
 
 
 async def add_document(
