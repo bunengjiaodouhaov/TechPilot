@@ -3,7 +3,14 @@ from collections.abc import Awaitable, Callable
 from app.answering.chunk_repository import ChunkRepository
 from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
-from app.answering.dto import Answer, BuiltContext, Citation, LLMAnswer
+from app.answering.dto import (
+    Answer,
+    BuiltContext,
+    Citation,
+    LLMAnswer,
+    RetrievedContext,
+    StoredChunk,
+)
 from app.answering.evidence_dto import (
     EvidenceItem,
     EvidenceState,
@@ -17,6 +24,7 @@ from app.answering.evidence_verifier import (
 from app.answering.llm import SYSTEM_PROMPT, LLMProvider, build_user_prompt
 from app.answering.workspace_repository import WorkspaceRepository
 from app.retrieval.dense_retrieval_service import DenseRetrievalService
+from app.retrieval.dto import VectorSearchHit
 
 
 REFUSAL_TEXT = "现有文档中没有足够证据回答这个问题。"
@@ -52,7 +60,18 @@ class AnswerService:
         llm_provider: LLMProvider,
         workspace_repository: WorkspaceRepository | None = None,
         release_read_transaction: Callable[[], Awaitable[None]] | None = None,
+        recovery_enabled: bool = False,
+        recovery_anchor_limit: int = 20,
+        recovery_parent_group_limit: int = 2,
+        recovery_max_additions: int = 12,
     ) -> None:
+        if recovery_anchor_limit <= 0:
+            raise ValueError("recovery_anchor_limit must be greater than zero")
+        if recovery_parent_group_limit <= 0:
+            raise ValueError("recovery_parent_group_limit must be greater than zero")
+        if recovery_max_additions <= 0:
+            raise ValueError("recovery_max_additions must be greater than zero")
+
         self._retrieval_service = retrieval_service
         self._chunk_repository = chunk_repository
         self._context_enricher = context_enricher
@@ -61,6 +80,10 @@ class AnswerService:
         self._llm_provider = llm_provider
         self._workspace_repository = workspace_repository
         self._release_read_transaction = release_read_transaction
+        self._recovery_enabled = recovery_enabled
+        self._recovery_anchor_limit = recovery_anchor_limit
+        self._recovery_parent_group_limit = recovery_parent_group_limit
+        self._recovery_max_additions = recovery_max_additions
 
     async def answer(
         self,
@@ -122,9 +145,9 @@ class AnswerService:
             await self._release_reads()
             return self._build_refusal(question=normalized_question)
 
-        # All PostgreSQL reads needed for this answer are complete. End the
-        # read transaction before verifier/generator network calls so slow LLM
-        # latency does not pin an otherwise idle DB transaction.
+        # All PostgreSQL reads needed for the first verification are complete.
+        # End the read transaction before verifier/generator network calls so
+        # slow provider latency does not pin an otherwise idle DB transaction.
         await self._release_reads()
 
         verification_request = self._build_verification_input(
@@ -138,6 +161,36 @@ class AnswerService:
             request=verification_request,
             result=verification,
         )
+
+        # Only insufficient evidence is eligible for one bounded recovery.
+        # Conflicting evidence remains fail-closed and is never widened in an
+        # attempt to make the conflict disappear.
+        if (
+            self._recovery_enabled
+            and verification.state is EvidenceState.INSUFFICIENT
+        ):
+            recovered_context = await self._recover_structural_context(
+                question=normalized_question,
+                workspace_id=workspace_id,
+                first_pass_contexts=enriched.contexts,
+            )
+            # Recovery performs fresh BM25/PostgreSQL reads after the first
+            # verifier call, so release that second read transaction as well.
+            await self._release_reads()
+
+            if recovered_context is not None:
+                built_context = recovered_context
+                verification_request = self._build_verification_input(
+                    question=normalized_question,
+                    built_context=built_context,
+                )
+                verification = await self._evidence_verifier.verify(
+                    request=verification_request,
+                )
+                validate_evidence_verification_result(
+                    request=verification_request,
+                    result=verification,
+                )
 
         if verification.state is not EvidenceState.SUFFICIENT:
             return self._build_refusal(question=normalized_question)
@@ -168,6 +221,183 @@ class AnswerService:
             built_context=built_context,
             verification=verification,
         )
+
+    async def _recover_structural_context(
+        self,
+        *,
+        question: str,
+        workspace_id: int,
+        first_pass_contexts: tuple[RetrievedContext, ...],
+    ) -> BuiltContext | None:
+        """Use broad anchors to add a small amount of sibling evidence.
+
+        The second retrieval is used only to locate document structure. Its
+        reranked results are not themselves treated as sufficient evidence.
+        Selected parent sections are loaded authoritatively from PostgreSQL and
+        appended immediately after the original top evidence so ContextBuilder
+        budget cannot hide recovery additions behind all twenty anchors.
+        """
+
+        anchors = await self._retrieval_service.search(
+            query=question,
+            workspace_id=workspace_id,
+            limit=self._recovery_anchor_limit,
+        )
+        if not anchors:
+            return None
+
+        groups = self._group_parent_sections(anchors)
+        if not groups:
+            return None
+
+        selected_groups = groups[: self._recovery_parent_group_limit]
+        sibling_chunks = await self._chunk_repository.get_by_parent_sections(
+            parent_sections=[key for key, _ in selected_groups],
+            workspace_id=workspace_id,
+        )
+        if not sibling_chunks:
+            return None
+
+        initial_ids = {context.chunk_db_id for context in first_pass_contexts}
+        additions = self._rank_recovery_chunks(
+            chunks=sibling_chunks,
+            selected_groups=selected_groups,
+            exclude_chunk_ids=initial_ids,
+        )[: self._recovery_max_additions]
+        if not additions:
+            return None
+
+        next_rank = max(
+            (context.rank for context in first_pass_contexts),
+            default=0,
+        ) + 1
+        recovered_contexts: list[RetrievedContext] = list(first_pass_contexts)
+        for offset, chunk in enumerate(additions):
+            recovered_contexts.append(
+                RetrievedContext(
+                    chunk_db_id=chunk.chunk_db_id,
+                    chunk_id=chunk.chunk_id,
+                    document_id=chunk.document_id,
+                    document_name=chunk.document_name,
+                    source_type=chunk.source_type,
+                    chunk_index=chunk.chunk_index,
+                    section=chunk.section,
+                    page_start=chunk.page_start,
+                    page_end=chunk.page_end,
+                    text=chunk.text,
+                    retrieval_score=0.0,
+                    rank=next_rank + offset,
+                )
+            )
+
+        recovered = self._context_builder.build(contexts=recovered_contexts)
+        if len(recovered.sources) <= len(
+            self._context_builder.build(contexts=first_pass_contexts).sources
+        ):
+            return None
+        return recovered
+
+    @staticmethod
+    def _group_parent_sections(
+        anchors: list[VectorSearchHit],
+    ) -> list[
+        tuple[
+            tuple[int, str],
+            tuple[tuple[int, int], ...],
+        ]
+    ]:
+        groups: dict[tuple[int, str], list[tuple[int, int]]] = {}
+        for rank, hit in enumerate(anchors, start=1):
+            parent = AnswerService._parent_section(hit.payload.section)
+            if parent is None:
+                continue
+            key = (hit.payload.document_id, parent)
+            groups.setdefault(key, []).append(
+                (rank, hit.payload.chunk_index)
+            )
+
+        ordered = sorted(
+            groups.items(),
+            key=lambda item: (
+                -len(item[1]),
+                min(rank for rank, _ in item[1]),
+                item[0][0],
+                item[0][1],
+            ),
+        )
+        return [
+            (key, tuple(values))
+            for key, values in ordered
+        ]
+
+    @staticmethod
+    def _rank_recovery_chunks(
+        *,
+        chunks: list[StoredChunk],
+        selected_groups: list[
+            tuple[
+                tuple[int, str],
+                tuple[tuple[int, int], ...],
+            ]
+        ],
+        exclude_chunk_ids: set[int],
+    ) -> list[StoredChunk]:
+        scored: list[tuple[tuple[int, int, int, int, int], StoredChunk]] = []
+
+        for chunk in chunks:
+            if chunk.chunk_db_id in exclude_chunk_ids:
+                continue
+
+            for group_order, ((document_id, parent), anchors) in enumerate(
+                selected_groups
+            ):
+                if chunk.document_id != document_id:
+                    continue
+                if not AnswerService._belongs_to_parent(
+                    section=chunk.section,
+                    parent=parent,
+                ):
+                    continue
+
+                support_count = len(anchors)
+                best_anchor_rank = min(rank for rank, _ in anchors)
+                distance = min(
+                    abs(chunk.chunk_index - anchor_index)
+                    for _, anchor_index in anchors
+                )
+                scored.append(
+                    (
+                        (
+                            group_order,
+                            -support_count,
+                            best_anchor_rank,
+                            distance,
+                            chunk.chunk_index,
+                        ),
+                        chunk,
+                    )
+                )
+                break
+
+        scored.sort(key=lambda item: item[0])
+        return [chunk for _, chunk in scored]
+
+    @staticmethod
+    def _parent_section(section: str | None) -> str | None:
+        if section is None:
+            return None
+        normalized = section.strip()
+        if not normalized or " > " not in normalized:
+            return None
+        parent = normalized.rsplit(" > ", 1)[0].strip()
+        return parent or None
+
+    @staticmethod
+    def _belongs_to_parent(*, section: str | None, parent: str) -> bool:
+        if section is None:
+            return False
+        normalized = section.strip()
+        return normalized == parent or normalized.startswith(parent + " > ")
 
     async def _release_reads(self) -> None:
         if self._release_read_transaction is not None:
