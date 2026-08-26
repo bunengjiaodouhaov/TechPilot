@@ -6,15 +6,27 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-from app.db.session import AsyncSessionLocal
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.user import User
 
 
 @pytest.mark.asyncio
-async def test_registration_cookie_login_and_logout_lifecycle() -> None:
+async def test_registration_cookie_login_and_logout_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     email = f"p6-register-{uuid4().hex}@example.com"
     password = "integration-password"
+
+    # Keep this integration test independent of pooled asyncpg connections
+    # created by an earlier pytest event loop, and use an RFC-sized test key.
+    await engine.dispose()
+    monkeypatch.setattr(
+        settings,
+        "auth_secret_key",
+        "integration-test-signing-key-32-bytes-minimum",
+    )
 
     transport = ASGITransport(app=app)
     try:
@@ -54,3 +66,4 @@ async def test_registration_cookie_login_and_logout_lifecycle() -> None:
         async with AsyncSessionLocal() as session:
             await session.execute(delete(User).where(User.email == email))
             await session.commit()
+        await engine.dispose()
