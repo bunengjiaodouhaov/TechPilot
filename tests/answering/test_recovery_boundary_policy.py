@@ -63,8 +63,8 @@ def test_boundary_policy_accepts_only_immediate_cross_section_neighbor() -> None
         exclude_chunk_ids=set(),
     )
 
-    assert [chunk.chunk_index for chunk in ranked] == [39, 41, 45]
-    assert ranked[-1].section == hitl_parent + " > Q44. HITL"
+    assert [chunk.chunk_index for chunk in ranked] == [45, 39, 41]
+    assert ranked[0].section == hitl_parent + " > Q44. HITL"
 
 
 def test_boundary_policy_still_excludes_explicit_anchor_ids() -> None:
