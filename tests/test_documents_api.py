@@ -1,11 +1,35 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_ingestion_service
+from app.auth.dependencies import AuthPrincipal, get_current_user, get_workspace_authorizer
 from app.ingestion.service import (
     IngestionResult,
     WorkspaceNotFoundError,
 )
 from app.main import app
+
+
+class AllowAuthorizer:
+    async def require_access(
+        self,
+        *,
+        user_id: int,
+        workspace_id: int,
+        owner_required: bool = False,
+    ) -> object:
+        return object()
+
+
+@pytest.fixture(autouse=True)
+def authenticated_workspace() -> None:
+    app.dependency_overrides[get_current_user] = lambda: AuthPrincipal(
+        id=7,
+        email="test@example.com",
+    )
+    app.dependency_overrides[get_workspace_authorizer] = lambda: AllowAuthorizer()
+    yield
+    app.dependency_overrides.clear()
 
 
 class SuccessfulIngestionService:
@@ -64,7 +88,7 @@ def test_upload_document_returns_ingestion_result() -> None:
                 },
             )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_ingestion_service, None)
 
     assert response.status_code == 201
     assert response.json() == {
@@ -96,7 +120,7 @@ def test_upload_document_returns_404_for_missing_workspace() -> None:
                 },
             )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_ingestion_service, None)
 
     assert response.status_code == 404
     assert response.json() == {
