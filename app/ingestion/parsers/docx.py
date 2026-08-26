@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from io import BytesIO
 from pathlib import Path
-from zipfile import BadZipFile
+from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.document import Document as WordDocument
@@ -18,12 +18,19 @@ from app.ingestion.schemas import ParseInput, ParsedDocument, ParsedElement
 
 
 _HEADING_PATTERN = re.compile(r"^Heading\s*([1-6])$", re.IGNORECASE)
+_MAX_ARCHIVE_ENTRIES = 4096
+_MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+_MAX_ENTRY_BYTES = 64 * 1024 * 1024
+_MAX_COMPRESSION_RATIO = 200.0
+_REQUIRED_PARTS = {"[Content_Types].xml", "word/document.xml"}
 
 
 class DOCXParser(BaseParser):
     """Parse Office Open XML Word documents while preserving structure."""
 
     def parse(self, parse_input: ParseInput) -> ParsedDocument:
+        self._validate_archive(parse_input.file_bytes)
+
         try:
             document = Document(BytesIO(parse_input.file_bytes))
         except (PackageNotFoundError, BadZipFile, KeyError, ValueError) as exc:
@@ -89,7 +96,7 @@ class DOCXParser(BaseParser):
 
             elements.append(
                 ParsedElement(
-                    text=table_text,
+                    text=f"Table {table_index}:\n{table_text}",
                     element_type="table",
                     source_metadata={
                         "heading_path": list(heading_stack),
@@ -117,6 +124,41 @@ class DOCXParser(BaseParser):
                 "embedded_images_interpreted": False,
             },
         )
+
+    @staticmethod
+    def _validate_archive(file_bytes: bytes) -> None:
+        """Fail closed before python-docx expands an untrusted OOXML archive."""
+        try:
+            with ZipFile(BytesIO(file_bytes)) as archive:
+                entries = archive.infolist()
+                if len(entries) > _MAX_ARCHIVE_ENTRIES:
+                    raise ValueError("DOCX archive contains too many entries.")
+
+                names = {entry.filename for entry in entries}
+                if not _REQUIRED_PARTS.issubset(names):
+                    raise ValueError("DOCX archive is missing required Word parts.")
+
+                total_uncompressed = 0
+                for entry in entries:
+                    if entry.is_dir():
+                        continue
+                    if entry.flag_bits & 0x1:
+                        raise ValueError("Encrypted DOCX archives are not supported.")
+                    if entry.file_size > _MAX_ENTRY_BYTES:
+                        raise ValueError("DOCX archive entry is too large.")
+
+                    total_uncompressed += entry.file_size
+                    if total_uncompressed > _MAX_UNCOMPRESSED_BYTES:
+                        raise ValueError("DOCX archive expands beyond the safety limit.")
+
+                    if entry.file_size >= 1024:
+                        ratio = entry.file_size / max(entry.compress_size, 1)
+                        if ratio > _MAX_COMPRESSION_RATIO:
+                            raise ValueError(
+                                "DOCX archive compression ratio exceeds the safety limit."
+                            )
+        except BadZipFile as exc:
+            raise ValueError("DOCX file is invalid or unreadable.") from exc
 
     @staticmethod
     def _iter_blocks(document: WordDocument):
@@ -173,7 +215,4 @@ class DOCXParser(BaseParser):
                 + " | ".join(cell or "(empty)" for cell in cells)
             )
 
-        if not rows:
-            return "", len(table.rows), max_columns
-
-        return "Table:\n" + "\n".join(rows), len(table.rows), max_columns
+        return "\n".join(rows), len(table.rows), max_columns
