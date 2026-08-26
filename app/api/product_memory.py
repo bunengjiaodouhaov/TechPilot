@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_db_session
+from app.auth.authorization import WorkspaceAccessError, WorkspaceAuthorizer, WorkspaceRoleError
+from app.auth.dependencies import AuthPrincipal, get_current_user, get_workspace_authorizer
 from app.models.chunk import Chunk
 from app.models.document import Document
 
@@ -34,13 +36,21 @@ class PersistentDocumentResponse(BaseModel):
 async def list_workspace_documents(
     workspace_id: Annotated[int, Path(gt=0)],
     session: AsyncSession = Depends(get_db_session),
+    principal: AuthPrincipal = Depends(get_current_user),
+    authorizer: WorkspaceAuthorizer = Depends(get_workspace_authorizer),
 ) -> list[PersistentDocumentResponse]:
-    """Expose already-persisted workspace sources to the product UI."""
-    statement = (
-        select(
-            Document,
-            func.count(Chunk.id).label("chunk_count"),
+    try:
+        await authorizer.require_access(
+            user_id=principal.id,
+            workspace_id=workspace_id,
         )
+    except WorkspaceAccessError as exc:
+        raise HTTPException(status_code=404, detail="workspace not found") from exc
+    except WorkspaceRoleError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    statement = (
+        select(Document, func.count(Chunk.id).label("chunk_count"))
         .outerjoin(Chunk, Chunk.document_id == Document.id)
         .where(
             Document.workspace_id == workspace_id,
@@ -50,7 +60,6 @@ async def list_workspace_documents(
         .order_by(Document.created_at.desc(), Document.id.desc())
     )
     rows = (await session.execute(statement)).all()
-
     return [
         PersistentDocumentResponse(
             id=document.id,
