@@ -9,6 +9,7 @@ alembic
 redis
 qdrant-client
 greenlet
+PyJWT>=2.9,<3.0
 
 pypdf
 python-multipart
