@@ -30,7 +30,6 @@
     ["Enter to send · Shift + Enter for newline", "Enter 发送 · Shift + Enter 换行"],
     ["Grounded answers may stay incomplete when authoritative workspace evidence is missing.", "当缺少权威工作区证据时，回答会明确保持不完整，而不是强行补全。"],
     ["Workspace knowledge", "工作区知识"],
-    ["Knowledge base", "知识库"],
     ["SOURCE LAYER", "来源层"],
     ["Give TechPilot material it can actually ground answers in.", "给 TechPilot 可以真正作为回答依据的材料。"],
     ["PDF and Markdown files move through the existing parser, chunker, persistence, and indexing pipeline. This page only shows source state the current API can prove.", "PDF 和 Markdown 文件会经过现有解析、分块、持久化和索引链路。本页只展示当前 API 能够证明的来源状态。"],
@@ -123,10 +122,11 @@
     const langButton = document.getElementById("tpLangButton");
     if (langButton) langButton.textContent = next === "zh-CN" ? "EN" : "中文";
     const label = document.getElementById("tpDemoLabel");
-    if (label) label.textContent = next === "zh-CN" ? "Portfolio Demo" : "Portfolio Demo";
+    if (label) label.textContent = "Portfolio Demo";
   }
 
   function createChrome() {
+    if (document.getElementById("tpCloseoutChrome")) return;
     const chrome = document.createElement("div");
     chrome.id = "tpCloseoutChrome";
     chrome.className = "tp-closeout-chrome";
@@ -140,13 +140,18 @@
       const current = localStorage.getItem(LOCALE_KEY) || DEFAULT_LOCALE;
       setLocale(current === "zh-CN" ? "en" : "zh-CN");
     });
-    document.getElementById("tpLogoutButton").addEventListener("click", () => {
-      sessionStorage.removeItem(SESSION_KEY);
-      window.location.reload();
+    document.getElementById("tpLogoutButton").addEventListener("click", async () => {
+      try {
+        await fetch("/auth/logout", {method: "POST"});
+      } finally {
+        sessionStorage.removeItem(SESSION_KEY);
+        window.location.reload();
+      }
     });
   }
 
   function createLogin() {
+    if (document.getElementById("tpLoginOverlay")) return;
     const overlay = document.createElement("div");
     overlay.id = "tpLoginOverlay";
     overlay.className = "tp-login-overlay";
@@ -155,7 +160,7 @@
         <div class="tp-login-brand">TechPilot</div>
         <p class="tp-login-kicker">EVIDENCE-GROUNDED AI ENGINEERING</p>
         <h1 id="tpLoginTitle">进入 TechPilot</h1>
-        <p class="tp-login-copy">作品集演示访问门。它用于提供完整产品入口，不代表生产级身份认证系统。</p>
+        <p class="tp-login-copy">后端身份认证已启用。演示账号仅用于作品集环境，生产环境可关闭。</p>
         <form id="tpLoginForm">
           <label>用户名<input id="tpLoginUser" autocomplete="username" value="demo" /></label>
           <label>密码<input id="tpLoginPassword" type="password" autocomplete="current-password" value="techpilot" /></label>
@@ -171,19 +176,30 @@
 
     const form = document.getElementById("tpLoginForm");
     const error = document.getElementById("tpLoginError");
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const user = document.getElementById("tpLoginUser").value.trim();
       const password = document.getElementById("tpLoginPassword").value;
-      if (user !== "demo" || password !== "techpilot") {
-        error.textContent = "演示账号或密码不正确。";
-        return;
+      const submit = form.querySelector("button[type=submit]");
+      submit.disabled = true;
+      error.textContent = "";
+      try {
+        const response = await fetch("/auth/token", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({identifier: user, password})
+        });
+        if (!response.ok) {
+          error.textContent = "演示账号或密码不正确。";
+          return;
+        }
+        sessionStorage.setItem(SESSION_KEY, "authenticated");
+        window.location.reload();
+      } catch (_err) {
+        error.textContent = "认证服务暂时不可用。";
+      } finally {
+        submit.disabled = false;
       }
-      sessionStorage.setItem(SESSION_KEY, "demo");
-      overlay.remove();
-      document.body.classList.remove("tp-login-locked");
-      createChrome();
-      setLocale(localStorage.getItem(LOCALE_KEY) || DEFAULT_LOCALE);
     });
 
     document.getElementById("tpLoginLanguage").addEventListener("click", () => {
@@ -191,8 +207,8 @@
       overlay.dataset.locale = english ? "zh-CN" : "en";
       document.getElementById("tpLoginTitle").textContent = english ? "进入 TechPilot" : "Enter TechPilot";
       overlay.querySelector(".tp-login-copy").textContent = english
-        ? "作品集演示访问门。它用于提供完整产品入口，不代表生产级身份认证系统。"
-        : "Portfolio demo access gate. It provides a complete product entry point and is not presented as production authentication.";
+        ? "后端身份认证已启用。演示账号仅用于作品集环境，生产环境可关闭。"
+        : "Backend authentication is enabled. The demo account is portfolio-only and can be disabled in production.";
       const labels = overlay.querySelectorAll("label");
       labels[0].childNodes[0].nodeValue = english ? "用户名" : "Username";
       labels[1].childNodes[0].nodeValue = english ? "密码" : "Password";
@@ -203,14 +219,22 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", async () => {
     const locale = localStorage.getItem(LOCALE_KEY) || DEFAULT_LOCALE;
-    if (sessionStorage.getItem(SESSION_KEY) === "demo") {
-      createChrome();
-      setLocale(locale);
-    } else {
-      createLogin();
-      setLocale(locale);
+    if (sessionStorage.getItem(SESSION_KEY)) {
+      try {
+        const response = await fetch("/auth/me", {headers: {"Accept": "application/json"}});
+        if (response.ok) {
+          createChrome();
+          setLocale(locale);
+          return;
+        }
+      } catch (_err) {
+        // Fall through to the login overlay.
+      }
+      sessionStorage.removeItem(SESSION_KEY);
     }
+    createLogin();
+    setLocale(locale);
   });
 })();
