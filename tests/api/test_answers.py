@@ -1,8 +1,32 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.answering.dto import Answer, Citation
 from app.api.dependencies import get_answer_service
+from app.auth.dependencies import AuthPrincipal, get_current_user, get_workspace_authorizer
 from app.main import app
+
+
+class AllowAuthorizer:
+    async def require_access(
+        self,
+        *,
+        user_id: int,
+        workspace_id: int,
+        owner_required: bool = False,
+    ) -> object:
+        return object()
+
+
+@pytest.fixture(autouse=True)
+def authenticated_workspace() -> None:
+    app.dependency_overrides[get_current_user] = lambda: AuthPrincipal(
+        id=7,
+        email="test@example.com",
+    )
+    app.dependency_overrides[get_workspace_authorizer] = lambda: AllowAuthorizer()
+    yield
+    app.dependency_overrides.clear()
 
 
 class FakeAnswerService:
@@ -46,20 +70,16 @@ def test_answer_question_returns_answer_and_public_citations() -> None:
             refused=False,
         )
     )
-
     app.dependency_overrides[get_answer_service] = lambda: service
 
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 1,
-                    "question": "FastAPI 的作用是什么？",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
+    with TestClient(app) as client:
+        response = client.post(
+            "/answers",
+            json={
+                "workspace_id": 1,
+                "question": "FastAPI 的作用是什么？",
+            },
+        )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -76,7 +96,6 @@ def test_answer_question_returns_answer_and_public_citations() -> None:
         ],
         "refused": False,
     }
-
     assert service.calls == [
         {
             "question": "FastAPI 的作用是什么？",
@@ -84,7 +103,6 @@ def test_answer_question_returns_answer_and_public_citations() -> None:
             "retrieval_limit": 5,
         }
     ]
-
     body = response.json()
     assert "chunk_id" not in body["citations"][0]
     assert "document_id" not in body["citations"][0]
@@ -99,20 +117,16 @@ def test_answer_question_returns_business_refusal_as_200() -> None:
             refused=True,
         )
     )
-
     app.dependency_overrides[get_answer_service] = lambda: service
 
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 1,
-                    "question": "项目中没有答案的问题",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
+    with TestClient(app) as client:
+        response = client.post(
+            "/answers",
+            json={
+                "workspace_id": 1,
+                "question": "项目中没有答案的问题",
+            },
+        )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -132,20 +146,16 @@ def test_answer_question_strips_question_whitespace() -> None:
             refused=False,
         )
     )
-
     app.dependency_overrides[get_answer_service] = lambda: service
 
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 3,
-                    "question": "  什么是向量检索？  ",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
+    with TestClient(app) as client:
+        response = client.post(
+            "/answers",
+            json={
+                "workspace_id": 3,
+                "question": "  什么是向量检索？  ",
+            },
+        )
 
     assert response.status_code == 200
     assert service.calls[0]["question"] == "什么是向量检索？"
@@ -155,12 +165,8 @@ def test_answer_question_rejects_blank_question() -> None:
     with TestClient(app) as client:
         response = client.post(
             "/answers",
-            json={
-                "workspace_id": 1,
-                "question": "   ",
-            },
+            json={"workspace_id": 1, "question": "   "},
         )
-
     assert response.status_code == 422
 
 
@@ -168,12 +174,8 @@ def test_answer_question_rejects_invalid_workspace_id() -> None:
     with TestClient(app) as client:
         response = client.post(
             "/answers",
-            json={
-                "workspace_id": 0,
-                "question": "什么是 RAG？",
-            },
+            json={"workspace_id": 0, "question": "什么是 RAG？"},
         )
-
     assert response.status_code == 422
 
 
@@ -196,93 +198,11 @@ def test_answer_question_returns_404_when_workspace_is_missing() -> None:
         lambda: MissingWorkspaceAnswerService()
     )
 
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 999,
-                    "question": "什么是 RAG？",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
+    with TestClient(app) as client:
+        response = client.post(
+            "/answers",
+            json={"workspace_id": 999, "question": "什么是 RAG？"},
+        )
 
     assert response.status_code == 404
-    assert response.json() == {
-        "detail": "workspace not found",
-    }
-
-
-def test_answer_question_returns_404_when_workspace_is_missing() -> None:
-    from app.answering.answer_service import WorkspaceNotFoundError
-
-    class MissingWorkspaceAnswerService:
-        async def answer(
-            self,
-            *,
-            question: str,
-            workspace_id: int,
-            retrieval_limit: int = 5,
-        ) -> Answer:
-            raise WorkspaceNotFoundError(
-                f"workspace {workspace_id} was not found"
-            )
-
-    app.dependency_overrides[get_answer_service] = (
-        lambda: MissingWorkspaceAnswerService()
-    )
-
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 999,
-                    "question": "什么是 RAG？",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 404
-    assert response.json() == {
-        "detail": "workspace not found",
-    }
-
-
-def test_answer_question_returns_404_when_workspace_is_missing() -> None:
-    from app.answering.answer_service import WorkspaceNotFoundError
-
-    class MissingWorkspaceAnswerService:
-        async def answer(
-            self,
-            *,
-            question: str,
-            workspace_id: int,
-            retrieval_limit: int = 5,
-        ) -> Answer:
-            raise WorkspaceNotFoundError(
-                f"workspace {workspace_id} was not found"
-            )
-
-    app.dependency_overrides[get_answer_service] = (
-        lambda: MissingWorkspaceAnswerService()
-    )
-
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/answers",
-                json={
-                    "workspace_id": 999,
-                    "question": "什么是 RAG？",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 404
-    assert response.json() == {
-        "detail": "workspace not found",
-    }
+    assert response.json() == {"detail": "workspace not found"}
