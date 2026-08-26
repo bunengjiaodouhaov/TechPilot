@@ -50,55 +50,76 @@ async def _resolve_probe_user(*, session, workspace_id: int) -> int:
     return int(user_id)
 
 
+async def _cleanup_idempotency(*, session, record_id: int | None) -> None:
+    if record_id is None:
+        return
+    await session.rollback()
+    await session.execute(
+        delete(IdempotencyRecord).where(IdempotencyRecord.id == record_id)
+    )
+    await session.commit()
+
+
+async def _cleanup_probe_document(*, session, workspace_id: int, filename: str) -> None:
+    await session.rollback()
+    await session.execute(
+        delete(Document).where(
+            Document.workspace_id == workspace_id,
+            Document.name == filename,
+        )
+    )
+    await session.commit()
+
+
 async def _probe_idempotency(*, session, workspace_id: int, user_id: int, suffix: str) -> None:
     service = IdempotencyService(session=session)
     key = f"p6-failure-retry-{suffix}"[:128]
     request_hash = hashlib.sha256(b"p6-failure-retry-probe").hexdigest()
+    record_id: int | None = None
 
-    first = await service.begin(
-        user_id=user_id,
-        workspace_id=workspace_id,
-        operation="p6_failure_recovery_probe",
-        key=key,
-        request_hash=request_hash,
-    )
-    record = await session.get(IdempotencyRecord, first.record_id)
-    assert record is not None
-    assert record.state == IdempotencyState.PROCESSING.value
+    try:
+        first = await service.begin(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            operation="p6_failure_recovery_probe",
+            key=key,
+            request_hash=request_hash,
+        )
+        record_id = first.record_id
+        record = await session.get(IdempotencyRecord, record_id)
+        assert record is not None
+        assert record.state == IdempotencyState.PROCESSING.value
 
-    await service.fail(record_id=first.record_id)
-    record = await session.get(IdempotencyRecord, first.record_id)
-    assert record is not None
-    assert record.state == IdempotencyState.FAILED.value
+        await service.fail(record_id=record_id)
+        record = await session.get(IdempotencyRecord, record_id)
+        assert record is not None
+        assert record.state == IdempotencyState.FAILED.value
 
-    retry = await service.begin(
-        user_id=user_id,
-        workspace_id=workspace_id,
-        operation="p6_failure_recovery_probe",
-        key=key,
-        request_hash=request_hash,
-    )
-    assert retry.record_id == first.record_id
-    record = await session.get(IdempotencyRecord, first.record_id)
-    assert record is not None
-    assert record.state == IdempotencyState.PROCESSING.value
+        retry = await service.begin(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            operation="p6_failure_recovery_probe",
+            key=key,
+            request_hash=request_hash,
+        )
+        assert retry.record_id == record_id
+        record = await session.get(IdempotencyRecord, record_id)
+        assert record is not None
+        assert record.state == IdempotencyState.PROCESSING.value
 
-    await service.complete(
-        record_id=first.record_id,
-        status_code=200,
-        response_json={"probe": "recovered"},
-    )
-    record = await session.get(IdempotencyRecord, first.record_id)
-    assert record is not None
-    assert record.state == IdempotencyState.COMPLETED.value
-    assert record.response_json == {"probe": "recovered"}
+        await service.complete(
+            record_id=record_id,
+            status_code=200,
+            response_json={"probe": "recovered"},
+        )
+        record = await session.get(IdempotencyRecord, record_id)
+        assert record is not None
+        assert record.state == IdempotencyState.COMPLETED.value
+        assert record.response_json == {"probe": "recovered"}
 
-    print("P6-5B idempotency FAILED -> retry -> COMPLETED: PASS")
-
-    await session.execute(
-        delete(IdempotencyRecord).where(IdempotencyRecord.id == first.record_id)
-    )
-    await session.commit()
+        print("P6-5B idempotency FAILED -> retry -> COMPLETED: PASS")
+    finally:
+        await _cleanup_idempotency(session=session, record_id=record_id)
 
 
 async def _probe_ingestion_failure(*, session, workspace_id: int, suffix: str) -> None:
@@ -109,62 +130,66 @@ async def _probe_ingestion_failure(*, session, workspace_id: int, suffix: str) -
     )
 
     try:
-        await service.ingest(
+        try:
+            await service.ingest(
+                workspace_id=workspace_id,
+                filename=filename,
+                content_type="text/markdown",
+                file_bytes=(
+                    b"# P6 Failure Recovery Probe\n\n"
+                    b"This committed chunk must become non-searchable when indexing fails.\n"
+                ),
+            )
+        except RuntimeError as exc:
+            assert "simulated post-commit indexing failure" in str(exc)
+        else:
+            raise AssertionError("simulated indexing failure did not propagate")
+
+        document = await session.scalar(
+            select(Document).where(
+                Document.workspace_id == workspace_id,
+                Document.name == filename,
+            )
+        )
+        assert document is not None
+        assert document.status == DocumentStatus.FAILED.value
+        assert "simulated post-commit indexing failure" in (document.error_message or "")
+
+        chunk_ids = list(
+            await session.scalars(
+                select(Chunk.id)
+                .where(Chunk.document_id == document.id)
+                .order_by(Chunk.id)
+            )
+        )
+        assert chunk_ids, "post-commit failure probe expected persisted chunks"
+
+        authoritative = await ChunkRepository(session=session).get_by_ids(
+            chunk_ids=chunk_ids,
+            workspace_id=workspace_id,
+        )
+        assert authoritative == {}, (
+            "FAILED document chunks crossed the authoritative answer boundary"
+        )
+
+        bm25_corpus = await BM25ChunkRepository(session=session).list_searchable(
+            workspace_id=workspace_id,
+        )
+        bm25_ids = {chunk.point_id for chunk in bm25_corpus}
+        assert bm25_ids.isdisjoint(chunk_ids), (
+            "FAILED document chunks crossed the BM25 searchable boundary"
+        )
+
+        print(
+            "P6-5D committed chunks + indexing failure -> FAILED + non-searchable: PASS"
+        )
+        print(f"  probe_document_id={document.id} persisted_chunk_count={len(chunk_ids)}")
+    finally:
+        await _cleanup_probe_document(
+            session=session,
             workspace_id=workspace_id,
             filename=filename,
-            content_type="text/markdown",
-            file_bytes=(
-                b"# P6 Failure Recovery Probe\n\n"
-                b"This committed chunk must become non-searchable when indexing fails.\n"
-            ),
         )
-    except RuntimeError as exc:
-        assert "simulated post-commit indexing failure" in str(exc)
-    else:
-        raise AssertionError("simulated indexing failure did not propagate")
-
-    document = await session.scalar(
-        select(Document).where(
-            Document.workspace_id == workspace_id,
-            Document.name == filename,
-        )
-    )
-    assert document is not None
-    assert document.status == DocumentStatus.FAILED.value
-    assert "simulated post-commit indexing failure" in (document.error_message or "")
-
-    chunk_ids = list(
-        await session.scalars(
-            select(Chunk.id)
-            .where(Chunk.document_id == document.id)
-            .order_by(Chunk.id)
-        )
-    )
-    assert chunk_ids, "post-commit failure probe expected persisted chunks"
-
-    authoritative = await ChunkRepository(session=session).get_by_ids(
-        chunk_ids=chunk_ids,
-        workspace_id=workspace_id,
-    )
-    assert authoritative == {}, (
-        "FAILED document chunks crossed the authoritative answer boundary"
-    )
-
-    bm25_corpus = await BM25ChunkRepository(session=session).list_searchable(
-        workspace_id=workspace_id,
-    )
-    bm25_ids = {chunk.point_id for chunk in bm25_corpus}
-    assert bm25_ids.isdisjoint(chunk_ids), (
-        "FAILED document chunks crossed the BM25 searchable boundary"
-    )
-
-    print(
-        "P6-5D committed chunks + indexing failure -> FAILED + non-searchable: PASS"
-    )
-    print(f"  probe_document_id={document.id} persisted_chunk_count={len(chunk_ids)}")
-
-    await session.execute(delete(Document).where(Document.id == document.id))
-    await session.commit()
 
 
 async def run(*, workspace_id: int) -> None:
