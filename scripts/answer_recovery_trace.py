@@ -36,21 +36,34 @@ async def run(*, workspace_id: int, question: str) -> None:
             stored_chunks=first_stored,
         ).contexts
 
+        first_pass_parents = {
+            (context.document_id, parent)
+            for context in first_contexts
+            if (parent := AnswerService._parent_section(context.section)) is not None
+        }
+
         anchors = await retrieval.search(
             query=question,
             workspace_id=workspace_id,
             limit=settings.answer_recovery_anchor_limit,
         )
-        groups = AnswerService._group_parent_sections(anchors)
+        groups = AnswerService._group_parent_sections(
+            anchors,
+            existing_parent_sections=first_pass_parents,
+        )
         selected = groups[: settings.answer_recovery_parent_group_limit]
         siblings = await repository.get_by_parent_sections(
             parent_sections=[key for key, _ in selected],
             workspace_id=workspace_id,
         )
+        excluded_ids = {
+            *(context.chunk_db_id for context in first_contexts),
+            *(hit.point_id for hit in anchors),
+        }
         additions = AnswerService._rank_recovery_chunks(
             chunks=siblings,
             selected_groups=selected,
-            exclude_chunk_ids={context.chunk_db_id for context in first_contexts},
+            exclude_chunk_ids=excluded_ids,
         )[: settings.answer_recovery_max_additions]
 
         print("=== CONFIG ===")
@@ -69,6 +82,12 @@ async def run(*, workspace_id: int, question: str) -> None:
                 f"section={stored.section if stored else hit.payload.section}"
             )
 
+        print("\n=== FIRST PASS PARENTS ===")
+        if not first_pass_parents:
+            print("NONE")
+        for document_id, parent in sorted(first_pass_parents):
+            print(f"document_id={document_id} parent={parent}")
+
         print("\n=== RECOVERY TOP20 ANCHORS ===")
         for rank, hit in enumerate(anchors, start=1):
             parent = AnswerService._parent_section(hit.payload.section)
@@ -83,10 +102,16 @@ async def run(*, workspace_id: int, question: str) -> None:
             document_id, parent = key
             anchor_ranks = [rank for rank, _ in values]
             anchor_indices = [index for _, index in values]
-            selected_mark = " SELECTED" if order <= settings.answer_recovery_parent_group_limit else ""
+            selected_mark = (
+                " SELECTED"
+                if order <= settings.answer_recovery_parent_group_limit
+                else ""
+            )
+            covered_mark = " FIRST_PASS_COVERED" if key in first_pass_parents else ""
             print(
-                f"group={order:02d}{selected_mark} document_id={document_id} "
-                f"support={len(values)} best_rank={min(anchor_ranks)} "
+                f"group={order:02d}{selected_mark}{covered_mark} "
+                f"document_id={document_id} support={len(values)} "
+                f"best_rank={min(anchor_ranks)} "
                 f"anchor_indices={anchor_indices} parent={parent}"
             )
 
@@ -101,7 +126,11 @@ async def run(*, workspace_id: int, question: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Trace bounded structural answer recovery without calling verifier/LLM.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Trace bounded structural answer recovery without calling verifier/LLM."
+        )
+    )
     parser.add_argument("--workspace-id", type=int, required=True)
     parser.add_argument("--question", required=True)
     args = parser.parse_args()
@@ -114,7 +143,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run(workspace_id=args.workspace_id, question=args.question.strip()))
+    asyncio.run(
+        run(
+            workspace_id=args.workspace_id,
+            question=args.question.strip(),
+        )
+    )
 
 
 if __name__ == "__main__":
