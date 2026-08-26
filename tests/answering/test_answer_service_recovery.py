@@ -335,3 +335,77 @@ async def test_conflicting_evidence_never_triggers_recovery() -> None:
     assert repository.parent_calls == []
     assert len(verifier.calls) == 1
     assert llm.calls == []
+
+
+def test_recovery_prioritizes_parent_sections_not_in_first_pass() -> None:
+    overview = "一、项目总览"
+    gateway = "五、MCP Gateway v2"
+    anchors = [
+        hit(
+            point_id=1,
+            chunk_index=2,
+            section=overview + " > Q1",
+        ),
+        hit(
+            point_id=2,
+            chunk_index=4,
+            section=overview + " > Q3",
+        ),
+        hit(
+            point_id=3,
+            chunk_index=36,
+            section=gateway + " > Q35",
+        ),
+    ]
+
+    groups = AnswerService._group_parent_sections(
+        anchors,
+        existing_parent_sections={(10, overview)},
+    )
+
+    assert groups[0][0] == (10, gateway)
+    assert groups[1][0] == (10, overview)
+
+
+def test_recovery_chunk_ranking_excludes_existing_anchor_chunks() -> None:
+    gateway = "五、MCP Gateway v2"
+    selected_groups = [
+        (
+            (10, gateway),
+            ((6, 36), (16, 37), (20, 44)),
+        )
+    ]
+    chunks = [
+        stored(
+            chunk_db_id=102,
+            chunk_index=37,
+            section=gateway + " > Q36",
+            text="already retrieved anchor",
+        ),
+        stored(
+            chunk_db_id=201,
+            chunk_index=39,
+            section=gateway + " > Q38",
+            text="permission classification",
+        ),
+        stored(
+            chunk_db_id=202,
+            chunk_index=41,
+            section=gateway + " > Q40",
+            text="schema validation",
+        ),
+        stored(
+            chunk_db_id=203,
+            chunk_index=45,
+            section=gateway + " > Q44",
+            text="approval HITL",
+        ),
+    ]
+
+    ranked = AnswerService._rank_recovery_chunks(
+        chunks=chunks,
+        selected_groups=selected_groups,
+        exclude_chunk_ids={102},
+    )
+
+    assert [chunk.chunk_db_id for chunk in ranked] == [203, 201, 202]
