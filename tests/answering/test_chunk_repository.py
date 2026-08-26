@@ -59,6 +59,12 @@ class FakeDocument:
         self.file_type = "pdf"
 
 
+def _assert_searchable_status_filter(statement: Any) -> None:
+    sql = str(statement)
+    assert "document.status IN" in sql
+    assert "document.deleted_at IS NULL" in sql
+
+
 @pytest.mark.asyncio
 async def test_get_by_ids_returns_chunks_keyed_by_database_id() -> None:
     chunk = FakeChunk(
@@ -94,6 +100,7 @@ async def test_get_by_ids_returns_chunks_keyed_by_database_id() -> None:
     assert stored_chunk.text == "Authoritative PostgreSQL chunk text."
 
     assert len(session.statements) == 1
+    _assert_searchable_status_filter(session.statements[0])
 
 
 @pytest.mark.asyncio
@@ -189,3 +196,31 @@ async def test_get_by_ids_rejects_invalid_chunk_ids(
         )
 
     assert session.statements == []
+
+
+@pytest.mark.asyncio
+async def test_parent_section_recovery_uses_same_searchable_status_boundary() -> None:
+    session = FakeSession()
+    repository = ChunkRepository(session=session)  # type: ignore[arg-type]
+
+    await repository.get_by_parent_sections(
+        parent_sections=[(10, "Five > Gateway")],
+        workspace_id=1,
+    )
+
+    assert len(session.statements) == 1
+    _assert_searchable_status_filter(session.statements[0])
+
+
+@pytest.mark.asyncio
+async def test_boundary_range_recovery_uses_same_searchable_status_boundary() -> None:
+    session = FakeSession()
+    repository = ChunkRepository(session=session)  # type: ignore[arg-type]
+
+    await repository.get_by_document_index_ranges(
+        ranges=[(10, 4, 6)],
+        workspace_id=1,
+    )
+
+    assert len(session.statements) == 1
+    _assert_searchable_status_filter(session.statements[0])
