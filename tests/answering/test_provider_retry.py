@@ -44,6 +44,17 @@ class BadRequestVerifier:
         raise RuntimeError("wrapped provider failure") from err
 
 
+class AlwaysTimeoutVerifier:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def verify(self, *, request):
+        self.calls += 1
+        req = httpx.Request("POST", "https://example.test")
+        err = httpx.ReadTimeout("provider timeout", request=req)
+        raise RuntimeError("wrapped provider timeout") from err
+
+
 class FlakyLLM:
     def __init__(self) -> None:
         self.calls = 0
@@ -65,6 +76,21 @@ async def test_verifier_retries_transient_http_failure() -> None:
     )
 
     assert await wrapper.verify(request=object()) == "ok"
+    assert provider.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_verifier_exhausts_bounded_timeout_retries_and_propagates() -> None:
+    provider = AlwaysTimeoutVerifier()
+    wrapper = RetryingEvidenceVerifierProvider(
+        provider=provider,
+        max_attempts=3,
+        base_delay_seconds=0,
+    )
+
+    with pytest.raises(RuntimeError, match="wrapped provider timeout"):
+        await wrapper.verify(request=object())
+
     assert provider.calls == 3
 
 
