@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     answer_rerank_depth: int = 20
     answer_rrf_k: int = 60
 
+    # Second-chance evidence recovery. This is verifier-driven rather than a
+    # mandatory query rewrite: only first-pass INSUFFICIENT results trigger it.
+    answer_recovery_enabled: bool = True
+    answer_recovery_anchor_limit: int = 20
+    answer_recovery_parent_group_limit: int = 2
+    answer_recovery_max_additions: int = 12
+
     @model_validator(mode="after")
     def validate_auth_settings(self) -> "Settings":
         if self.auth_access_token_minutes <= 0:
@@ -48,6 +55,22 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "AUTH_SECRET_KEY must be changed before production startup"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_answer_recovery_settings(self) -> "Settings":
+        for name in (
+            "answer_recovery_anchor_limit",
+            "answer_recovery_parent_group_limit",
+            "answer_recovery_max_additions",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name.upper()} must be positive")
+        if self.answer_recovery_anchor_limit < self.answer_recovery_parent_group_limit:
+            raise ValueError(
+                "ANSWER_RECOVERY_ANCHOR_LIMIT must be greater than or equal to "
+                "ANSWER_RECOVERY_PARENT_GROUP_LIMIT"
             )
         return self
 
