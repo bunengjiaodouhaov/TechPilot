@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 router = APIRouter(include_in_schema=False)
 
@@ -9,10 +9,17 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @router.get("/")
-async def product_home() -> FileResponse:
-    """Serve the TechPilot product shell."""
-    return FileResponse(
-        _STATIC_DIR / "index.html",
+async def product_home() -> HTMLResponse:
+    """Serve the TechPilot product shell with the P6 auth UI extension."""
+    html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    auth_script = '  <script src="/ui/auth-register.js" defer></script>\n'
+    if auth_script.strip() not in html:
+        html = html.replace(
+            '  <script src="/ui/closeout.js" defer></script>\n',
+            '  <script src="/ui/closeout.js" defer></script>\n' + auth_script,
+        )
+    return HTMLResponse(
+        content=html,
         media_type="text/html; charset=utf-8",
         headers={"Cache-Control": "no-cache"},
     )
@@ -37,6 +44,7 @@ async def product_script() -> FileResponse:
         headers={"Cache-Control": "no-cache"},
     )
 
+
 # CLOSEOUT_UI_V1
 @router.get("/ui/closeout.css")
 async def product_closeout_styles() -> FileResponse:
@@ -53,6 +61,16 @@ async def product_closeout_script() -> FileResponse:
     """Serve demo access and localization behavior."""
     return FileResponse(
         _STATIC_DIR / "closeout.js",
+        media_type="text/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.get("/ui/auth-register.js")
+async def product_auth_register_script() -> FileResponse:
+    """Serve the registration and cookie-session UI extension."""
+    return FileResponse(
+        _STATIC_DIR / "auth-register.js",
         media_type="text/javascript; charset=utf-8",
         headers={"Cache-Control": "no-cache"},
     )
