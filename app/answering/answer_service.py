@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+
 from app.answering.chunk_repository import ChunkRepository
 from app.answering.context_builder import ContextBuilder
 from app.answering.context_enricher import ContextEnricher
@@ -49,6 +51,7 @@ class AnswerService:
         evidence_verifier: EvidenceVerifierProvider,
         llm_provider: LLMProvider,
         workspace_repository: WorkspaceRepository | None = None,
+        release_read_transaction: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._retrieval_service = retrieval_service
         self._chunk_repository = chunk_repository
@@ -57,6 +60,7 @@ class AnswerService:
         self._evidence_verifier = evidence_verifier
         self._llm_provider = llm_provider
         self._workspace_repository = workspace_repository
+        self._release_read_transaction = release_read_transaction
 
     async def answer(
         self,
@@ -79,6 +83,7 @@ class AnswerService:
                 workspace_id=workspace_id,
             )
             if not workspace_exists:
+                await self._release_reads()
                 raise WorkspaceNotFoundError(
                     f"workspace {workspace_id} was not found"
                 )
@@ -90,6 +95,7 @@ class AnswerService:
         )
 
         if not hits:
+            await self._release_reads()
             return self._build_refusal(question=normalized_question)
 
         stored_chunks = await self._chunk_repository.get_by_ids(
@@ -103,6 +109,7 @@ class AnswerService:
         )
 
         if not enriched.contexts:
+            await self._release_reads()
             raise AnsweringDataConsistencyError(
                 "all retrieved chunks are missing from PostgreSQL"
             )
@@ -112,7 +119,13 @@ class AnswerService:
         )
 
         if not built_context.sources:
+            await self._release_reads()
             return self._build_refusal(question=normalized_question)
+
+        # All PostgreSQL reads needed for this answer are complete. End the
+        # read transaction before verifier/generator network calls so slow LLM
+        # latency does not pin an otherwise idle DB transaction.
+        await self._release_reads()
 
         verification_request = self._build_verification_input(
             question=normalized_question,
@@ -155,6 +168,10 @@ class AnswerService:
             built_context=built_context,
             verification=verification,
         )
+
+    async def _release_reads(self) -> None:
+        if self._release_read_transaction is not None:
+            await self._release_read_transaction()
 
     @staticmethod
     def _build_verification_input(
