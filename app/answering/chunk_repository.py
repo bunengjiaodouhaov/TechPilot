@@ -6,6 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.answering.dto import StoredChunk
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.document_status import DocumentStatus
+
+
+_SEARCHABLE_DOCUMENT_STATUSES = (
+    DocumentStatus.COMPLETED.value,
+    DocumentStatus.PARTIAL.value,
+)
 
 
 class ChunkRepository:
@@ -20,7 +27,12 @@ class ChunkRepository:
         chunk_ids: Sequence[int],
         workspace_id: int,
     ) -> dict[int, StoredChunk]:
-        """Return chunks belonging to one workspace, keyed by database ID."""
+        """Return searchable chunks belonging to one workspace, keyed by DB ID.
+
+        PostgreSQL is the authoritative eligibility boundary. Qdrant can contain
+        stale/orphan points after a failed compensation, so chunks from PENDING
+        or FAILED documents are rejected here even when their point IDs exist.
+        """
 
         if workspace_id <= 0:
             raise ValueError("workspace_id must be greater than zero")
@@ -43,6 +55,7 @@ class ChunkRepository:
                 Chunk.id.in_(normalized_ids),
                 Document.workspace_id == workspace_id,
                 Document.deleted_at.is_(None),
+                Document.status.in_(_SEARCHABLE_DOCUMENT_STATUSES),
             )
         )
 
@@ -61,15 +74,7 @@ class ChunkRepository:
         parent_sections: Sequence[tuple[int, str]],
         workspace_id: int,
     ) -> list[StoredChunk]:
-        """Load selected section siblings plus immediate section boundaries.
-
-        Each tuple is ``(document_id, parent_section)``. The main query returns
-        chunks whose authoritative section is the parent or one of its
-        descendants. A second bounded query also returns the immediate chunk
-        before and after each matched section. Those boundary chunks keep their
-        original metadata; the recovery policy decides whether an adjacent
-        cross-section chunk is eligible as evidence.
-        """
+        """Load bounded-recovery siblings under selected searchable sections."""
 
         if workspace_id <= 0:
             raise ValueError("workspace_id must be greater than zero")
@@ -108,80 +113,74 @@ class ChunkRepository:
             .where(
                 Document.workspace_id == workspace_id,
                 Document.deleted_at.is_(None),
+                Document.status.in_(_SEARCHABLE_DOCUMENT_STATUSES),
                 or_(*section_conditions),
             )
             .order_by(Document.id.asc(), Chunk.chunk_index.asc())
         )
 
         result = await self._session.execute(statement)
-        primary_rows = list(result.all())
-
-        boundary_by_document: dict[int, set[int]] = {}
-        for document_id, parent in normalized:
-            indices = [
-                chunk.chunk_index
-                for chunk, document in primary_rows
-                if (
-                    document.id == document_id
-                    and self._section_belongs_to_parent(
-                        section=chunk.section,
-                        parent=parent,
-                    )
-                )
-            ]
-            if not indices:
-                continue
-
-            boundary_indices = boundary_by_document.setdefault(document_id, set())
-            first_index = min(indices)
-            last_index = max(indices)
-            if first_index > 0:
-                boundary_indices.add(first_index - 1)
-            boundary_indices.add(last_index + 1)
-
-        boundary_rows: list[tuple[Chunk, Document]] = []
-        if boundary_by_document:
-            boundary_conditions = [
-                and_(
-                    Document.id == document_id,
-                    Chunk.chunk_index.in_(sorted(indices)),
-                )
-                for document_id, indices in boundary_by_document.items()
-                if indices
-            ]
-            if boundary_conditions:
-                boundary_statement = (
-                    select(Chunk, Document)
-                    .join(Document, Chunk.document_id == Document.id)
-                    .where(
-                        Document.workspace_id == workspace_id,
-                        Document.deleted_at.is_(None),
-                        or_(*boundary_conditions),
-                    )
-                    .order_by(Document.id.asc(), Chunk.chunk_index.asc())
-                )
-                boundary_result = await self._session.execute(boundary_statement)
-                boundary_rows = list(boundary_result.all())
-
-        rows_by_chunk_id: dict[int, tuple[Chunk, Document]] = {}
-        for chunk, document in [*primary_rows, *boundary_rows]:
-            rows_by_chunk_id[chunk.id] = (chunk, document)
-
-        ordered_rows = sorted(
-            rows_by_chunk_id.values(),
-            key=lambda row: (row[1].id, row[0].chunk_index, row[0].id),
-        )
         return [
             self._to_stored_chunk(chunk=chunk, document=document)
-            for chunk, document in ordered_rows
+            for chunk, document in result.all()
         ]
 
-    @staticmethod
-    def _section_belongs_to_parent(*, section: str | None, parent: str) -> bool:
-        if section is None:
-            return False
-        normalized = section.strip()
-        return normalized == parent or normalized.startswith(parent + " > ")
+    async def get_by_document_index_ranges(
+        self,
+        *,
+        ranges: Sequence[tuple[int, int, int]],
+        workspace_id: int,
+    ) -> list[StoredChunk]:
+        """Load searchable chunks in bounded document-local index ranges.
+
+        Each tuple is ``(document_id, min_chunk_index, max_chunk_index)``. This
+        is used only by boundary-aware recovery and preserves the authoritative
+        section metadata of any cross-heading neighbor.
+        """
+
+        if workspace_id <= 0:
+            raise ValueError("workspace_id must be greater than zero")
+
+        normalized: list[tuple[int, int, int]] = []
+        seen: set[tuple[int, int, int]] = set()
+        for document_id, minimum, maximum in ranges:
+            if document_id <= 0:
+                raise ValueError("document_id must be greater than zero")
+            if minimum < 0 or maximum < minimum:
+                raise ValueError("invalid chunk index range")
+            key = (document_id, minimum, maximum)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(key)
+
+        if not normalized:
+            return []
+
+        range_conditions = [
+            and_(
+                Document.id == document_id,
+                Chunk.chunk_index >= minimum,
+                Chunk.chunk_index <= maximum,
+            )
+            for document_id, minimum, maximum in normalized
+        ]
+        statement = (
+            select(Chunk, Document)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Document.workspace_id == workspace_id,
+                Document.deleted_at.is_(None),
+                Document.status.in_(_SEARCHABLE_DOCUMENT_STATUSES),
+                or_(*range_conditions),
+            )
+            .order_by(Document.id.asc(), Chunk.chunk_index.asc())
+        )
+        result = await self._session.execute(statement)
+        return [
+            self._to_stored_chunk(chunk=chunk, document=document)
+            for chunk, document in result.all()
+        ]
 
     @staticmethod
     def _to_stored_chunk(*, chunk: Chunk, document: Document) -> StoredChunk:
