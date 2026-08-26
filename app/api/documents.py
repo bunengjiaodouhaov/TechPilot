@@ -84,7 +84,7 @@ async def upload_document(
     idempotency: Annotated[IdempotencyService, Depends(get_idempotency_service)],
     idempotency_key: Annotated[
         str | None,
-        Header(default=None, alias="Idempotency-Key"),
+        Header(alias="Idempotency-Key"),
     ] = None,
 ) -> DocumentUploadResponse:
     filename = file.filename or ""
