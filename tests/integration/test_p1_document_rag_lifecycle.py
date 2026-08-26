@@ -26,11 +26,23 @@ from app.api.dependencies import (
     get_dense_retrieval_service,
     get_vector_repository,
 )
+from app.auth.dependencies import AuthPrincipal, get_current_user, get_workspace_authorizer
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.document import Document
 from app.models.workspace import Workspace
+
+
+class AllowAuthorizer:
+    async def require_access(
+        self,
+        *,
+        user_id: int,
+        workspace_id: int,
+        owner_required: bool = False,
+    ) -> object:
+        return object()
 
 
 class PromptCheckingFakeEvidenceVerifier:
@@ -143,12 +155,21 @@ async def test_p1_document_rag_lifecycle() -> None:
             workspace_repository=WorkspaceRepository(session=session),
         )
 
-    previous_override: Any = app.dependency_overrides.get(
+    previous_answer_override: Any = app.dependency_overrides.get(
         get_answer_service
     )
-    app.dependency_overrides[get_answer_service] = (
-        override_get_answer_service
+    previous_user_override: Any = app.dependency_overrides.get(
+        get_current_user
     )
+    previous_authorizer_override: Any = app.dependency_overrides.get(
+        get_workspace_authorizer
+    )
+    app.dependency_overrides[get_answer_service] = override_get_answer_service
+    app.dependency_overrides[get_current_user] = lambda: AuthPrincipal(
+        id=7,
+        email="p1-lifecycle@example.com",
+    )
+    app.dependency_overrides[get_workspace_authorizer] = lambda: AllowAuthorizer()
 
     try:
         transport = ASGITransport(app=app)
@@ -231,12 +252,20 @@ async def test_p1_document_rag_lifecycle() -> None:
             assert document.deleted_at is not None
 
     finally:
-        if previous_override is None:
+        if previous_answer_override is None:
             app.dependency_overrides.pop(get_answer_service, None)
         else:
-            app.dependency_overrides[get_answer_service] = (
-                previous_override
-            )
+            app.dependency_overrides[get_answer_service] = previous_answer_override
+
+        if previous_user_override is None:
+            app.dependency_overrides.pop(get_current_user, None)
+        else:
+            app.dependency_overrides[get_current_user] = previous_user_override
+
+        if previous_authorizer_override is None:
+            app.dependency_overrides.pop(get_workspace_authorizer, None)
+        else:
+            app.dependency_overrides[get_workspace_authorizer] = previous_authorizer_override
 
         if document_id is not None:
             await get_vector_repository().delete_document_points(
