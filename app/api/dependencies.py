@@ -16,6 +16,7 @@ from app.answering.provider_retry import (
     RetryingEvidenceVerifierProvider,
     RetryingLLMProvider,
 )
+from app.answering.recovery_answer_service import BoundaryAwareAnswerService
 from app.answering.workspace_repository import WorkspaceRepository
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
@@ -176,7 +177,7 @@ def get_answer_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> AnswerService:
     """Build the answering service with request-scoped database access."""
-    return AnswerService(
+    return BoundaryAwareAnswerService(
         retrieval_service=get_answer_retrieval_service(session=session),
         chunk_repository=ChunkRepository(session=session),
         context_enricher=ContextEnricher(),
