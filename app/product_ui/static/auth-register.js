@@ -3,13 +3,10 @@
 
   const SESSION_KEY = "techpilot_demo_session";
   const LOCALE_KEY = "techpilot_locale";
-
-  function locale() {
-    return localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "zh-CN";
-  }
+  let uiLocale = localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "zh-CN";
 
   function copy(zh, en) {
-    return locale() === "en" ? en : zh;
+    return uiLocale === "en" ? en : zh;
   }
 
   function describeRegistrationError(status, payload) {
@@ -37,6 +34,7 @@
 
     overlay.dataset.registrationInstalled = "true";
     overlay.dataset.authMode = "login";
+    if (overlay.dataset.locale === "en") uiLocale = "en";
 
     const switcher = document.createElement("div");
     switcher.className = "tp-auth-switch";
@@ -68,6 +66,7 @@
 
     function renderMode(mode) {
       const isRegister = mode === "register";
+      const english = uiLocale === "en";
       overlay.dataset.authMode = isRegister ? "register" : "login";
       loginForm.hidden = isRegister;
       registerForm.hidden = !isRegister;
@@ -75,8 +74,6 @@
       registerMode.classList.toggle("active", isRegister);
       loginMode.setAttribute("aria-selected", String(!isRegister));
       registerMode.setAttribute("aria-selected", String(isRegister));
-
-      const english = locale() === "en";
       loginMode.textContent = english ? "Sign in" : "登录";
       registerMode.textContent = english ? "Create account" : "注册";
 
@@ -94,6 +91,11 @@
         registerForm.querySelector("#tpRegisterSubmit").textContent = english
           ? "Create account and enter"
           : "创建账号并进入";
+      } else {
+        title.textContent = english ? "Enter TechPilot" : "进入 TechPilot";
+        loginCopy.textContent = english
+          ? "Backend authentication is enabled. The demo account is portfolio-only and can be disabled in production."
+          : "后端身份认证已启用。演示账号仅用于作品集环境，生产环境可关闭。";
       }
     }
 
@@ -156,7 +158,10 @@
 
     if (languageButton) {
       languageButton.addEventListener("click", () => {
-        window.setTimeout(() => renderMode(overlay.dataset.authMode || "login"), 0);
+        window.setTimeout(() => {
+          uiLocale = overlay.dataset.locale === "en" ? "en" : "zh-CN";
+          renderMode(overlay.dataset.authMode || "login");
+        }, 0);
       });
     }
 
