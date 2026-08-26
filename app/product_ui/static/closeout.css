@@ -6,13 +6,18 @@
 .tp-login-card h1 { margin: 0 0 10px; font-size: 30px; }
 .tp-login-copy { margin: 0 0 24px; line-height: 1.65; color: #607089; }
 .tp-login-card form { display: grid; gap: 14px; }
+.tp-login-card form[hidden] { display: none; }
 .tp-login-card label { display: grid; gap: 7px; font-size: 13px; font-weight: 700; color: #53647b; }
 .tp-login-card input { box-sizing: border-box; width: 100%; border: 1px solid #cfd9e6; border-radius: 14px; padding: 12px 14px; font: inherit; color: #1d2b3f; background: #fff; outline: none; }
 .tp-login-card input:focus { border-color: #7c98bd; box-shadow: 0 0 0 4px rgba(124,152,189,.12); }
 .tp-login-card button[type=submit] { margin-top: 6px; border: 0; border-radius: 14px; padding: 13px 16px; font: inherit; font-weight: 800; cursor: pointer; background: #263b55; color: #fff; }
+.tp-login-card button[type=submit]:disabled { cursor: progress; opacity: .65; }
 .tp-login-hint { margin: -3px 0 0; font-size: 12px; color: #7b8797; }
 .tp-login-error { min-height: 18px; margin: 0; font-size: 12px; color: #a64242; }
 .tp-login-language { margin-top: 18px; border: 0; padding: 0; background: transparent; color: #546b89; cursor: pointer; font: inherit; font-size: 13px; }
+.tp-auth-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 18px; padding: 4px; border: 1px solid rgba(76,104,142,.16); border-radius: 14px; background: rgba(228,235,244,.55); }
+.tp-auth-switch button { border: 0; border-radius: 10px; padding: 9px 10px; background: transparent; color: #66778d; cursor: pointer; font: inherit; font-size: 13px; font-weight: 800; }
+.tp-auth-switch button.active { background: #fff; color: #263b55; box-shadow: 0 3px 12px rgba(56,78,108,.10); }
 .tp-closeout-chrome { position: fixed; top: 16px; right: 18px; z-index: 9000; display: flex; align-items: center; gap: 8px; }
 .tp-demo-label { padding: 7px 10px; border-radius: 999px; background: rgba(255,255,255,.78); border: 1px solid rgba(86,107,136,.16); color: #708096; font-size: 11px; letter-spacing: .06em; backdrop-filter: blur(12px); }
 .tp-chrome-button { border: 1px solid rgba(86,107,136,.16); border-radius: 999px; padding: 7px 10px; background: rgba(255,255,255,.82); color: #41536c; cursor: pointer; font: inherit; font-size: 12px; backdrop-filter: blur(12px); }
