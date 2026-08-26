@@ -4,9 +4,9 @@ from pathlib import Path
 def test_answers_preserves_stateless_legacy_path() -> None:
     source = Path("app/api/answers.py").read_text()
 
-    assert "conversation = None" in source
     assert "if request.conversation_id is not None:" in source
-    assert "if conversation is not None:" in source
+    assert "conversation_id: int | None = None" in source
+    assert "if conversation_id is not None:" in source
     assert "conversation = Conversation(" not in source
 
 
