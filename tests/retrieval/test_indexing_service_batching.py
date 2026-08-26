@@ -27,8 +27,10 @@ class FakeVectorRepository:
         self,
         *,
         fail_on_upsert_call: int | None = None,
+        fail_cleanup: bool = False,
     ) -> None:
         self.fail_on_upsert_call = fail_on_upsert_call
+        self.fail_cleanup = fail_cleanup
         self.ensure_calls = 0
         self.upsert_calls: list[list] = []
         self.delete_calls: list[tuple[int, int]] = []
@@ -54,6 +56,8 @@ class FakeVectorRepository:
         self.delete_calls.append(
             (workspace_id, document_id)
         )
+        if self.fail_cleanup:
+            raise RuntimeError("simulated compensation cleanup failure")
 
 
 def _document():
@@ -137,6 +141,29 @@ async def test_partial_failure_compensates_document_points() -> None:
         2,
     ]
     assert repository.delete_calls == [(12, 70)]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_preserves_original_indexing_error_and_adds_note() -> None:
+    repository = FakeVectorRepository(
+        fail_on_upsert_call=2,
+        fail_cleanup=True,
+    )
+    service = IndexingService(
+        embedding_provider=FakeEmbeddingProvider(),
+        vector_repository=repository,
+        batch_size=2,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated qdrant failure") as caught:
+        await service.index_document(
+            document=_document(),
+            chunks=_chunks(5),
+        )
+
+    assert repository.delete_calls == [(12, 70)]
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("compensation cleanup also failed" in note for note in notes)
 
 
 def test_rejects_non_positive_batch_size() -> None:
