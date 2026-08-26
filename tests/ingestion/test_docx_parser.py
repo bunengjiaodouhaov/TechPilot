@@ -1,5 +1,7 @@
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
+import pytest
 from docx import Document
 
 from app.ingestion.chunker import StructureAwareChunker
@@ -27,9 +29,8 @@ def make_docx() -> bytes:
     return buffer.getvalue()
 
 
-def test_docx_parser_preserves_headings_paragraphs_and_tables() -> None:
-    file_bytes = make_docx()
-    parsed = DOCXParser().parse(
+def parse_docx(file_bytes: bytes):
+    return DOCXParser().parse(
         ParseInput(
             filename="architecture.docx",
             content_type=DOCX_MIME,
@@ -37,6 +38,10 @@ def test_docx_parser_preserves_headings_paragraphs_and_tables() -> None:
             file_bytes=file_bytes,
         )
     )
+
+
+def test_docx_parser_preserves_headings_paragraphs_and_tables() -> None:
+    parsed = parse_docx(make_docx())
 
     assert parsed.file_type == "docx"
     assert parsed.title == "System Architecture"
@@ -55,20 +60,13 @@ def test_docx_parser_preserves_headings_paragraphs_and_tables() -> None:
     table = parsed.elements[4]
     assert table.source_metadata["table_index"] == 1
     assert table.source_metadata["row_count"] == 2
+    assert table.text.startswith("Table 1:")
     assert "Component | Boundary" in table.text
     assert "ToolRuntime | Permission enforcement" in table.text
 
 
 def test_docx_chunks_inject_heading_path_and_keep_table_type() -> None:
-    file_bytes = make_docx()
-    parsed = DOCXParser().parse(
-        ParseInput(
-            filename="architecture.docx",
-            content_type=DOCX_MIME,
-            file_size=len(file_bytes),
-            file_bytes=file_bytes,
-        )
-    )
+    parsed = parse_docx(make_docx())
 
     chunks = StructureAwareChunker(max_chars=1200).chunk(parsed)
 
@@ -88,18 +86,14 @@ def test_docx_chunks_inject_heading_path_and_keep_table_type() -> None:
 
 
 def test_docx_parser_rejects_non_docx_bytes() -> None:
-    parser = DOCXParser()
+    with pytest.raises(ValueError, match="invalid or unreadable"):
+        parse_docx(b"not-docx!")
 
-    try:
-        parser.parse(
-            ParseInput(
-                filename="broken.docx",
-                content_type=DOCX_MIME,
-                file_size=9,
-                file_bytes=b"not-docx!",
-            )
-        )
-    except ValueError as exc:
-        assert "invalid or unreadable" in str(exc)
-    else:
-        raise AssertionError("invalid DOCX bytes must be rejected")
+
+def test_docx_parser_rejects_suspicious_archive_compression_ratio() -> None:
+    archive_bytes = BytesIO(make_docx())
+    with ZipFile(archive_bytes, mode="a", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("word/media/repetitive.bin", b"0" * (2 * 1024 * 1024))
+
+    with pytest.raises(ValueError, match="compression ratio"):
+        parse_docx(archive_bytes.getvalue())
