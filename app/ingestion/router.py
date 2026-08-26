@@ -6,6 +6,7 @@ from pathlib import Path
 from app.ingestion.ocr import TesseractPDFOCRProvider
 from app.ingestion.parsers import (
     BaseParser,
+    DOCXParser,
     MarkdownParser,
     PDFParser,
 )
@@ -32,12 +33,14 @@ class ParserRouter:
         ".md": "markdown",
         ".markdown": "markdown",
         ".pdf": "pdf",
+        ".docx": "docx",
     }
 
     _CONTENT_TYPES = {
         "text/markdown": "markdown",
         "text/x-markdown": "markdown",
         "application/pdf": "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     }
 
     def __init__(self) -> None:
@@ -47,6 +50,7 @@ class ParserRouter:
                 ocr_provider=TesseractPDFOCRProvider(),
                 native_text_min_chars=24,
             ),
+            "docx": DOCXParser(),
         }
 
     def select(
