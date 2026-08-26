@@ -177,9 +177,7 @@ def get_answer_service(
 ) -> AnswerService:
     """Build the answering service with request-scoped database access."""
     return AnswerService(
-        retrieval_service=get_answer_retrieval_service(
-            session=session,
-        ),
+        retrieval_service=get_answer_retrieval_service(session=session),
         chunk_repository=ChunkRepository(session=session),
         context_enricher=ContextEnricher(),
         context_builder=ContextBuilder(
@@ -188,7 +186,9 @@ def get_answer_service(
         evidence_verifier=get_evidence_verifier_provider(),
         llm_provider=get_llm_provider(),
         workspace_repository=WorkspaceRepository(session=session),
+        release_read_transaction=session.commit,
     )
+
 
 @lru_cache
 def get_jd_extractor() -> DeepSeekJDExtractor:
