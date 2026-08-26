@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.answering.answer_service import AnswerService
 from app.answering.chunk_repository import ChunkRepository
 from app.answering.context_enricher import ContextEnricher
+from app.answering.recovery_answer_service import BoundaryAwareAnswerService
 from app.api.dependencies import get_answer_retrieval_service
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
@@ -60,7 +61,7 @@ async def run(*, workspace_id: int, question: str) -> None:
             *(context.chunk_db_id for context in first_contexts),
             *(hit.point_id for hit in anchors),
         }
-        additions = AnswerService._rank_recovery_chunks(
+        additions = BoundaryAwareAnswerService._rank_recovery_chunks(
             chunks=siblings,
             selected_groups=selected,
             exclude_chunk_ids=excluded_ids,
@@ -119,9 +120,31 @@ async def run(*, workspace_id: int, question: str) -> None:
         if not additions:
             print("NONE")
         for order, chunk in enumerate(additions, start=1):
+            selected_parent = next(
+                (
+                    parent
+                    for (document_id, parent), anchors_for_group in selected
+                    if (
+                        document_id == chunk.document_id
+                        and min(
+                            abs(chunk.chunk_index - anchor_index)
+                            for _, anchor_index in anchors_for_group
+                        ) == 1
+                    )
+                ),
+                None,
+            )
+            bridge = (
+                selected_parent is not None
+                and not AnswerService._belongs_to_parent(
+                    section=chunk.section,
+                    parent=selected_parent,
+                )
+            )
             print(
                 f"add={order:02d} point={chunk.chunk_db_id} "
-                f"chunk_index={chunk.chunk_index} section={chunk.section}"
+                f"chunk_index={chunk.chunk_index} boundary_bridge={bridge} "
+                f"section={chunk.section}"
             )
 
 
