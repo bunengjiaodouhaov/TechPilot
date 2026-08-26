@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation
@@ -41,6 +41,7 @@ async def append_exchange_if_version(
         .values(
             version=Conversation.version + 1,
             title=title,
+            updated_at=func.now(),
         )
     )
     if result.rowcount != 1:
