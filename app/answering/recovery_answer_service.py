@@ -59,10 +59,10 @@ class BoundaryAwareAnswerService(AnswerService):
                     (
                         (
                             group_order,
+                            distance,
                             0 if belongs_to_parent else 1,
                             -support_count,
                             best_anchor_rank,
-                            distance,
                             chunk.chunk_index,
                         ),
                         chunk,
