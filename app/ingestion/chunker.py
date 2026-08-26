@@ -26,7 +26,7 @@ class StructureAwareChunker:
         self.max_chars = max_chars
 
     def chunk(self, document: ParsedDocument) -> tuple[ChunkData, ...]:
-        if document.file_type == "markdown":
+        if document.file_type in {"markdown", "docx"}:
             candidates = self._chunk_markdown(document.elements)
         elif document.file_type == "pdf":
             candidates = self._chunk_pdf(document.elements)
@@ -102,12 +102,12 @@ class StructureAwareChunker:
                         [],
                     )
                 )
-                # Headings are structural context, not standalone
-                # retrieval chunks. They are preserved in `section`,
-                # `heading_path`, and injected into body chunk text.
+                # Headings are structural context, not standalone retrieval
+                # chunks. They are preserved in `section`, `heading_path`, and
+                # injected into body chunk text.
                 continue
 
-            if element.element_type == "paragraph":
+            if element.element_type in {"paragraph", "table"}:
                 element_path = tuple(
                     str(item)
                     for item in element.source_metadata.get(
@@ -304,19 +304,19 @@ class StructureAwareChunker:
         chunks: list[ChunkData] = []
 
         for chunk_index, candidate in enumerate(candidates):
-
-            # Normalize lone surrogate code points before hashing, persistence, and indexing.
-
-            safe_text = candidate.text.encode("utf-8", errors="replace").decode("utf-8").replace("\x00", "")
-
+            # Normalize lone surrogate code points before hashing,
+            # persistence, and indexing.
+            safe_text = (
+                candidate.text.encode("utf-8", errors="replace")
+                .decode("utf-8")
+                .replace("\x00", "")
+            )
             safe_section = (
-
-                candidate.section.encode("utf-8", errors="replace").decode("utf-8").replace("\x00", "")
-
+                candidate.section.encode("utf-8", errors="replace")
+                .decode("utf-8")
+                .replace("\x00", "")
                 if candidate.section is not None
-
                 else None
-
             )
 
             identity = "\n".join(
