@@ -11,6 +11,7 @@ def test_closeout_ui_assets_are_served() -> None:
     assert '/ui/closeout.css' in home.text
     assert '/ui/closeout.js' in home.text
     assert '/ui/auth-register.js' in home.text
+    assert '/ui/product-memory.js' in home.text
 
     script = client.get("/ui/closeout.js")
     assert script.status_code == 200
@@ -24,6 +25,13 @@ def test_closeout_ui_assets_are_served() -> None:
     assert 'fetch("/auth/me"' in register_script.text
     assert 'tpRegisterForm' in register_script.text
     assert 'tpRegisterConfirm' in register_script.text
+
+    memory_script = client.get("/ui/product-memory.js")
+    assert memory_script.status_code == 200
+    assert 'endsWith(".docx")' in memory_script.text
+    assert "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in memory_script.text
+    assert 'fetch("/documents/upload"' in memory_script.text
+    assert "PDF · MD · DOCX" in memory_script.text
 
     styles = client.get("/ui/closeout.css")
     assert styles.status_code == 200
