@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,10 @@ class Settings(BaseSettings):
     redis_url: str
     qdrant_url: str
     qdrant_collection_name: str = "techpilot_chunks"
+
+    auth_secret_key: str = "dev-only-change-me"
+    auth_access_token_minutes: int = 60
+    auth_demo_enabled: bool = True
 
     embedding_model: str = "intfloat/multilingual-e5-base"
     embedding_dimension: int = 768
@@ -30,6 +35,21 @@ class Settings(BaseSettings):
     answer_retrieval_candidate_limit: int = 40
     answer_rerank_depth: int = 20
     answer_rrf_k: int = 60
+
+    @model_validator(mode="after")
+    def validate_auth_settings(self) -> "Settings":
+        if self.auth_access_token_minutes <= 0:
+            raise ValueError("auth_access_token_minutes must be positive")
+        if not self.auth_secret_key.strip():
+            raise ValueError("auth_secret_key must not be empty")
+        if (
+            self.app_env.lower() == "production"
+            and self.auth_secret_key == "dev-only-change-me"
+        ):
+            raise ValueError(
+                "AUTH_SECRET_KEY must be changed before production startup"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
