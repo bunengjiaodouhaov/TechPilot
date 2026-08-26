@@ -187,6 +187,10 @@ def get_answer_service(
         llm_provider=get_llm_provider(),
         workspace_repository=WorkspaceRepository(session=session),
         release_read_transaction=session.commit,
+        recovery_enabled=settings.answer_recovery_enabled,
+        recovery_anchor_limit=settings.answer_recovery_anchor_limit,
+        recovery_parent_group_limit=settings.answer_recovery_parent_group_limit,
+        recovery_max_additions=settings.answer_recovery_max_additions,
     )
 
 
