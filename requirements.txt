@@ -12,6 +12,7 @@ greenlet
 PyJWT>=2.9,<3.0
 
 pypdf
+python-docx>=1.1,<2.0
 python-multipart
 pytest-asyncio==1.4.0
 sentence-transformers
