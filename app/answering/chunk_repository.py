@@ -61,12 +61,14 @@ class ChunkRepository:
         parent_sections: Sequence[tuple[int, str]],
         workspace_id: int,
     ) -> list[StoredChunk]:
-        """Load bounded-recovery siblings under selected document sections.
+        """Load selected section siblings plus immediate section boundaries.
 
-        Each tuple is ``(document_id, parent_section)``. The query remains
-        workspace scoped and excludes soft-deleted documents. A parent matches
-        both a chunk whose section is exactly the parent and descendants using
-        the ``parent > child`` hierarchy emitted by structured parsers.
+        Each tuple is ``(document_id, parent_section)``. The main query returns
+        chunks whose authoritative section is the parent or one of its
+        descendants. A second bounded query also returns the immediate chunk
+        before and after each matched section. Those boundary chunks keep their
+        original metadata; the recovery policy decides whether an adjacent
+        cross-section chunk is eligible as evidence.
         """
 
         if workspace_id <= 0:
@@ -112,10 +114,74 @@ class ChunkRepository:
         )
 
         result = await self._session.execute(statement)
+        primary_rows = list(result.all())
+
+        boundary_by_document: dict[int, set[int]] = {}
+        for document_id, parent in normalized:
+            indices = [
+                chunk.chunk_index
+                for chunk, document in primary_rows
+                if (
+                    document.id == document_id
+                    and self._section_belongs_to_parent(
+                        section=chunk.section,
+                        parent=parent,
+                    )
+                )
+            ]
+            if not indices:
+                continue
+
+            boundary_indices = boundary_by_document.setdefault(document_id, set())
+            first_index = min(indices)
+            last_index = max(indices)
+            if first_index > 0:
+                boundary_indices.add(first_index - 1)
+            boundary_indices.add(last_index + 1)
+
+        boundary_rows: list[tuple[Chunk, Document]] = []
+        if boundary_by_document:
+            boundary_conditions = [
+                and_(
+                    Document.id == document_id,
+                    Chunk.chunk_index.in_(sorted(indices)),
+                )
+                for document_id, indices in boundary_by_document.items()
+                if indices
+            ]
+            if boundary_conditions:
+                boundary_statement = (
+                    select(Chunk, Document)
+                    .join(Document, Chunk.document_id == Document.id)
+                    .where(
+                        Document.workspace_id == workspace_id,
+                        Document.deleted_at.is_(None),
+                        or_(*boundary_conditions),
+                    )
+                    .order_by(Document.id.asc(), Chunk.chunk_index.asc())
+                )
+                boundary_result = await self._session.execute(boundary_statement)
+                boundary_rows = list(boundary_result.all())
+
+        rows_by_chunk_id: dict[int, tuple[Chunk, Document]] = {}
+        for chunk, document in [*primary_rows, *boundary_rows]:
+            rows_by_chunk_id[chunk.id] = (chunk, document)
+
+        ordered_rows = sorted(
+            rows_by_chunk_id.values(),
+            key=lambda row: (row[1].id, row[0].chunk_index, row[0].id),
+        )
         return [
             self._to_stored_chunk(chunk=chunk, document=document)
-            for chunk, document in result.all()
+            for chunk, document in ordered_rows
         ]
+
+    @staticmethod
+    def _section_belongs_to_parent(*, section: str | None, parent: str) -> bool:
+        if section is None:
+            return False
+        normalized = section.strip()
+        return normalized == parent or normalized.startswith(parent + " > ")
 
     @staticmethod
     def _to_stored_chunk(*, chunk: Chunk, document: Document) -> StoredChunk:
